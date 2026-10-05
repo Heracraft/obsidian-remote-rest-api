@@ -1,0 +1,231 @@
+#!/usr/bin/env python3
+"""Generate the index of a decisions log.
+
+The index has one line for each entry: the id, the title, the date (when
+the entry's first parenthetical has one), the status (superseded, amended
+or reversed, when the log says so), and the line the entry starts on.
+
+    decisions-index            # write the index
+    decisions-index --check    # exit 1 when the index is stale
+
+An entry starts a line with its id in bold or in a heading:
+
+    **D-12. Agents work in worktrees.** (owner, 2026-10-03) The decision...
+    ### D-12. Agents work in worktrees
+
+The settings come from the command line, then from the environment
+(RQ_DECISIONS_FILE, RQ_INDEX_FILE, RQ_ID_PREFIX), then from the
+.release-queue.conf file at the top of the repository, then from the
+defaults docs/DECISIONS.md, docs/DECISIONS-INDEX.md and D-.
+
+Standard library only. Paths are relative to the top of the repository.
+"""
+import argparse
+import os
+import re
+import subprocess
+import sys
+from pathlib import Path
+
+DEFAULTS = {
+    "RQ_DECISIONS_FILE": "docs/DECISIONS.md",
+    "RQ_INDEX_FILE": "docs/DECISIONS-INDEX.md",
+    "RQ_ID_PREFIX": "D-",
+    "RQ_INDEX_CMD": "decisions-index",
+}
+
+
+def repo_root():
+    try:
+        out = subprocess.run(
+            ["git", "rev-parse", "--show-toplevel"],
+            capture_output=True, text=True, check=True,
+        )
+        return Path(out.stdout.strip())
+    except (OSError, subprocess.CalledProcessError):
+        return Path.cwd()
+
+
+def read_conf(root):
+    """Read KEY=value lines from .release-queue.conf. Arrays are ignored."""
+    conf = {}
+    path = Path(os.environ.get("RQ_CONFIG") or root / ".release-queue.conf")
+    if not path.is_file():
+        return conf
+    for line in path.read_text().splitlines():
+        m = re.match(r"^\s*(RQ_[A-Z_]+)=(.*)$", line)
+        if not m or m.group(2).startswith("("):
+            continue
+        val = re.sub(r"\s+#.*$", "", m.group(2)).strip()
+        if len(val) >= 2 and val[0] == val[-1] and val[0] in "'\"":
+            val = val[1:-1]
+        conf[m.group(1)] = val
+    return conf
+
+
+def setting(name, arg, conf):
+    if arg is not None:
+        return arg
+    if os.environ.get(name):
+        return os.environ[name]
+    if conf.get(name):
+        return conf[name]
+    return DEFAULTS[name]
+
+
+class Grammar:
+    def __init__(self, prefix):
+        p = re.escape(prefix)
+        self.id = p + r"\d+[a-z]?"
+        idg = self.id + r"(?:\.\." + self.id + r")?(?: \+ " + self.id + r")*"
+        self.group = idg
+        self.start = re.compile(r"^(?:\*\*|#{1,6} )(" + idg + r")(?![0-9A-Za-z])")
+        tail = r"((?:(?:,? and |, )" + self.id + r"(?:'s)?)*)"
+        self.backrefs = [
+            (re.compile(r"\bSupersedes (?:what is left of )?(" + self.id + r")('s)?" + tail, re.I), "superseded"),
+            (re.compile(r"\breplaces (" + self.id + r")('s)?" + tail, re.I), "superseded"),
+            (re.compile(r"\bamends (" + self.id + r")('s)?" + tail, re.I), "amended"),
+            (re.compile(r"\breverses (" + self.id + r")('s)?" + tail, re.I), "reversed"),
+        ]
+        self.tail_id = re.compile(r"(" + self.id + r")('s)?")
+        self.self_refs = [
+            (re.compile(r"\*?(?:Replaced|Superseded) by:?\*?:? ?(" + self.id + r")", re.I), "superseded"),
+            (re.compile(r"\*?Reversed by:?\*?:? ?(" + self.id + r")", re.I), "reversed"),
+        ]
+
+
+DATE = re.compile(r"\b(\d{4}-\d{2}-\d{2})\b")
+
+
+def parse(text, g):
+    entries, section, cur = [], "", None
+    for n, line in enumerate(text.split("\n"), 1):
+        m = g.start.match(line)
+        if m:
+            if cur:
+                entries.append(cur)
+            cur = {"id": m.group(1), "line": n, "section": section, "text": [line],
+                   "heading": not line.startswith("**")}
+            continue
+        if re.match(r"^#{1,3} ", line):
+            section = line.lstrip("#").strip()
+            if cur:
+                entries.append(cur)
+                cur = None
+            continue
+        if cur is not None:
+            cur["text"].append(line)
+    if cur:
+        entries.append(cur)
+    for e in entries:
+        flat = " ".join(" ".join(e["text"]).split())
+        e["aliases"] = [e["id"]] if ".." in e["id"] else re.findall(g.id, e["id"])
+        if e["heading"]:
+            first = e["text"][0].lstrip("#").strip()
+            title = first[len(e["id"]):]
+            rest = " ".join(" ".join(e["text"][1:]).split())
+        else:
+            m = re.match(r"^\*\*(" + g.group + r")(.*?)\*\*", flat)
+            title = m.group(2) if m else flat[len(e["id"]) + 2:]
+            rest = flat[m.end():].lstrip() if m else ""
+        title = re.sub(r"^[.:]\s*", "", title.strip()).strip()
+        e["title"] = title.rstrip(".")
+        paren = re.match(r"^\(([^)]*)\)", rest)
+        d = DATE.search(paren.group(1)) if paren else None
+        e["date"] = d.group(1) if d else ""
+        e["flat"] = flat
+        e["status"] = []
+    return entries
+
+
+def statuses(entries, g):
+    by_id = {}
+    for e in entries:
+        for a in e["aliases"]:
+            by_id.setdefault(a, e)
+    for e in entries:
+        for pat, verb in g.self_refs:
+            for m in pat.finditer(e["flat"]):
+                note = f"{verb} by {m.group(1)}"
+                if note not in e["status"]:
+                    e["status"].append(note)
+    for src in entries:
+        for pat, verb in g.backrefs:
+            for m in pat.finditer(src["flat"]):
+                named = [(m.group(1), m.group(2))]
+                if m.lastindex and m.lastindex >= 3 and m.group(3):
+                    named += [(t.group(1), t.group(2)) for t in g.tail_id.finditer(m.group(3))]
+                for ref, possessive in named:
+                    tgt = by_id.get(ref)
+                    if not tgt or tgt is src:
+                        continue
+                    partly = "partly " if (possessive or len(tgt["aliases"]) > 1) else ""
+                    note = f"{partly}{verb} by {src['id']}"
+                    if f"{verb} by {src['id']}" in tgt["status"] or note in tgt["status"]:
+                        continue
+                    tgt["status"].append(note)
+
+
+def render(entries, src_name, cmd):
+    out = [
+        "# Decisions index",
+        "",
+        f"This file is generated from [{src_name}]({src_name}) by `{cmd}`.",
+        "Do not edit it. Run the command after you add an entry.",
+        f"`{cmd} --check` shows if this file is stale.",
+        "",
+        f"Read this index first. Then open {src_name} at the entries you need.",
+        "`L` is the line where the entry starts. The status is only what the log",
+        "says: a later entry that supersedes, amends or reverses an entry wins.",
+        "",
+        f"{len(entries)} entries.",
+    ]
+    section = None
+    for e in entries:
+        if e["section"] != section:
+            section = e["section"]
+            if section:
+                out += ["", f"## {section}"]
+            out.append("")
+        meta = ([e["date"]] if e["date"] else []) + e["status"] + [f"L{e['line']}"]
+        out.append(f"- **{e['id']}** {e['title']} ({'; '.join(meta)})")
+    return "\n".join(out) + "\n"
+
+
+def main(argv):
+    ap = argparse.ArgumentParser(description="Generate the index of a decisions log.")
+    ap.add_argument("--check", action="store_true", help="exit 1 when the index is stale")
+    ap.add_argument("--decisions", help="the decisions log (default from the config)")
+    ap.add_argument("--index", help="the index file to write")
+    ap.add_argument("--prefix", help="the id prefix, for example D- or ADR-")
+    args = ap.parse_args(argv)
+
+    root = repo_root()
+    conf = read_conf(root)
+    src = root / setting("RQ_DECISIONS_FILE", args.decisions, conf)
+    out = root / setting("RQ_INDEX_FILE", args.index, conf)
+    g = Grammar(setting("RQ_ID_PREFIX", args.prefix, conf))
+    if not src.is_file():
+        print(f"decisions-index: {src} does not exist", file=sys.stderr)
+        return 2
+
+    entries = parse(src.read_text(), g)
+    statuses(entries, g)
+    rel = os.path.relpath(src, out.parent)
+    text = render(entries, rel, setting("RQ_INDEX_CMD", None, conf))
+    name = os.path.relpath(out, root)
+    if args.check:
+        cur = out.read_text() if out.exists() else ""
+        if cur != text:
+            print(f"{name} is stale; run {setting('RQ_INDEX_CMD', None, conf)}", file=sys.stderr)
+            return 1
+        print(f"{name} is current ({len(entries)} entries)")
+        return 0
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.write_text(text)
+    print(f"wrote {name} ({len(entries)} entries)")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))

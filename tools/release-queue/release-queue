@@ -1,0 +1,489 @@
+#!/usr/bin/env bash
+# release-queue: a merge queue for several coding agents in one repository.
+#
+# Each agent works on its own worktree branch and queues the branch when it
+# is done. One conductor session merges the queue into main in verified
+# batches, and releases main when the owner asks. docs/PROCEDURE.md is the
+# procedure; docs/CONFIG.md lists every setting.
+#
+#   release-queue start SLUG                     make a worktree on a new branch SLUG from main
+#   release-queue id [N]                         reserve N decision ids (default 1)
+#   release-queue add [--live TEXT] [--note TEXT] queue this worktree's branch
+#   release-queue ls [--all]                     show the queue and what main holds unreleased
+#   release-queue drop BRANCH                    take a branch off the queue
+#   release-queue cut                            conductor: merge the queue into a new batch
+#   release-queue resume BATCH                   conductor: continue a batch after a conflict
+#   release-queue abandon BATCH                  conductor: undo a cut and queue its branches again
+#   release-queue done BATCH                     conductor: after main holds the batch
+#
+# The state is on no branch. It is in the common git directory, which every
+# worktree of the checkout shares, under one flock.
+#
+# Needs bash, git 2.38 or later (merge-tree --write-tree), flock, coreutils.
+set -euo pipefail
+
+die() { echo "release-queue: $*" >&2; exit 1; }
+
+git rev-parse --git-dir >/dev/null 2>&1 || die "run this inside a git repository"
+top=$(git rev-parse --show-toplevel)
+common=$(git rev-parse --path-format=absolute --git-common-dir)
+main_wt=$(git worktree list --porcelain | awk 'NR == 1 { print $2 }')
+
+# Settings. A project overrides them in .release-queue.conf, a bash file
+# that this script sources. RQ_CONFIG names another file.
+RQ_MAIN=main
+RQ_RELEASED_REF=origin/main
+RQ_PUSH_DEPLOYS=no
+RQ_WORKTREE_PATTERN='../{checkout}-{name}'
+RQ_BATCH_BRANCH_PREFIX=release/
+RQ_DECISIONS_FILE=
+RQ_ID_PREFIX=D-
+RQ_ID_WIDTH=0
+RQ_INDEX_FILE=
+RQ_INDEX_CMD=
+RQ_PROCEDURE=docs/release-queue/PROCEDURE.md
+RQ_TARGETS=()
+RQ_GO_BINARIES=()
+RQ_ADD_CHECKS=()
+
+conf=${RQ_CONFIG:-}
+if [ -z "$conf" ]; then
+  for c in "$top/.release-queue.conf" "$main_wt/.release-queue.conf"; do
+    if [ -f "$c" ]; then conf=$c; break; fi
+  done
+fi
+if [ -n "$conf" ]; then
+  [ -f "$conf" ] || die "config $conf does not exist"
+  # shellcheck source=/dev/null
+  . "$conf"
+fi
+export RQ_DECISIONS_FILE RQ_INDEX_FILE RQ_ID_PREFIX
+
+state=$common/release-queue
+mkdir -p "$state/entries" "$state/releases"
+touch "$state/ids"
+
+locked() { exec 9>"$state/lock"; flock 9; }
+key() { printf '%s' "$1" | tr '/' '%'; }
+# The first value of KEY in a state file. awk, so no pipe can fail.
+field() { awk -v k="$2=" 'index($0, k) == 1 { print substr($0, length(k) + 1); exit }' "$1"; }
+setfield() { # file key value
+  local f=$1 k=$2 v=$3 tmp
+  tmp=$(mktemp "$f.XXXX")
+  grep -v "^$k=" "$f" > "$tmp" || true
+  printf '%s=%s\n' "$k" "$v" >> "$tmp"
+  mv "$tmp" "$f"
+}
+# A grep that gives no lines is a normal result here. Under pipefail, an
+# unguarded empty grep stops the script with no message.
+filter() { grep "$@" || true; }
+
+# The path of a worktree named NAME, from RQ_WORKTREE_PATTERN.
+wt_path() {
+  local p=$RQ_WORKTREE_PATTERN
+  p=${p//\{checkout\}/$(basename "$main_wt")}
+  p=${p//\{name\}/$1}
+  case $p in /*) ;; *) p=$main_wt/$p ;; esac
+  realpath -m "$p"
+}
+
+# The full ref that counts as released, or nothing when it does not exist.
+released_ref() {
+  local r
+  for r in "refs/remotes/$RQ_RELEASED_REF" "$RQ_RELEASED_REF"; do
+    if git rev-parse -q --verify "$r^{commit}" >/dev/null; then echo "$r"; return; fi
+  done
+}
+released() { local r; r=$(released_ref); [ -n "$r" ] && git merge-base --is-ancestor "$1" "$r" 2>/dev/null; }
+
+# git worktree add does not fill submodules. A tool in a submodule needs them.
+init_submodules() { # worktree
+  [ -f "$1/.gitmodules" ] || return 0
+  git -C "$1" submodule update --init -q || echo "release-queue: 'git submodule update --init' failed in $1" >&2
+}
+
+index_ready() { [ -n "$RQ_INDEX_FILE" ] && [ -n "$RQ_INDEX_CMD" ]; }
+regen_index() { # worktree
+  (cd "$1" && bash -c "$RQ_INDEX_CMD") >/dev/null || die "the index command failed in $1: $RQ_INDEX_CMD"
+}
+
+# The release targets that a range of commits reaches.
+# A path rule is "GLOB TARGET[,TARGET...]". In GLOB, * matches any
+# characters, / included. A Go rule is "cmd/DIR TARGET": a changed package
+# counts for each binary that imports it (go list -deps).
+needs_of() {
+  local range=$1 files t=() rule glob tg f added
+  files=$(git diff --name-only "$range")
+  for rule in "${RQ_TARGETS[@]+"${RQ_TARGETS[@]}"}"; do
+    read -r glob tg <<<"$rule"
+    while IFS= read -r f; do
+      [ -n "$f" ] || continue
+      # shellcheck disable=SC2053 # the right side is a glob on purpose
+      if [[ $f == $glob ]]; then
+        IFS=, read -ra added <<<"$tg"
+        t+=("${added[@]}")
+        break
+      fi
+    done <<<"$files"
+  done
+  if [ ${#RQ_GO_BINARIES[@]} -gt 0 ] && [ -f go.mod ] && command -v go >/dev/null; then
+    local pkgs gomod mod deps dir p pp
+    pkgs=$(go_packages_of "$files")
+    gomod=$(filter -xE 'go\.(mod|sum)' <<<"$files")
+    mod=$(go list -m 2>/dev/null || true)
+    for rule in "${RQ_GO_BINARIES[@]}"; do
+      read -r dir tg <<<"$rule"
+      IFS=, read -ra added <<<"$tg"
+      if [ -n "$gomod" ]; then t+=("${added[@]}"); continue; fi
+      [ -n "$pkgs" ] && [ -n "$mod" ] || continue
+      deps=$(go list -deps "./$dir" 2>/dev/null || true)
+      while IFS= read -r p; do
+        pp=$mod/$p
+        [ "$p" != . ] || pp=$mod
+        if grep -qxF "$pp" <<<"$deps"; then t+=("${added[@]}"); break; fi
+      done <<<"$pkgs"
+    done
+  fi
+  [ ${#t[@]} -gt 0 ] || t=(none)
+  printf '%s\n' "${t[@]}" | sort -u | paste -sd, -
+}
+
+# go_packages_of prints the Go package directory of each changed file. A
+# .go file marks its own directory ("." at the top). Another file (an
+# embedded template, a migration) marks the nearest directory above it
+# that has .go files, so an edit to an embedded file ships with its
+# binary. A file outside such a directory, or at the top, marks nothing.
+# The caller runs at the top of the worktree.
+go_packages_of() { # files
+  local f d
+  while IFS= read -r f; do
+    case $f in
+      '') continue ;;
+      */*.go) echo "${f%/*}" ;;
+      *.go) echo . ;;
+      */*)
+        d=${f%/*}
+        while ! compgen -G "$d/*.go" >/dev/null; do
+          [[ $d == */* ]] || { d=; break; }
+          d=${d%/*}
+        done
+        [ -z "$d" ] || echo "$d"
+        ;;
+    esac
+  done <<<"$1" | sort -u
+}
+
+# Joins target lists, drops "none", and names the empty result.
+join_needs() {
+  local n
+  n=$(tr ',' '\n' | filter -v -e '^$' -e '^none$' | sort -u | paste -sd, -)
+  echo "${n:-nothing to release}"
+}
+
+cmd_start() {
+  local slug=${1:-}
+  [ -n "$slug" ] || die "start: give a branch name, for example: release-queue start fix-login"
+  git rev-parse -q --verify "refs/heads/$slug" >/dev/null && die "start: branch $slug exists already"
+  local wt; wt=$(wt_path "$slug")
+  [ ! -e "$wt" ] || die "start: $wt exists already"
+  git worktree add -q -b "$slug" "$wt" "$RQ_MAIN"
+  init_submodules "$wt"
+  echo "$wt"
+}
+
+# run_add_checks runs each RQ_ADD_CHECKS rule whose target the branch
+# ships as ("*" for every branch), at the top of the worktree. A failure
+# stops the add, so a branch that fails a project guard, for example
+# docs/TRUST-THE-READER.md, never reaches the queue.
+run_add_checks() { # needs
+  local needs=" ${1//,/ } " rule target cmd log
+  for rule in "${RQ_ADD_CHECKS[@]+"${RQ_ADD_CHECKS[@]}"}"; do
+    target=${rule%% *}
+    cmd=${rule#* }
+    [ -n "$target" ] && [ "$cmd" != "$rule" ] || die "RQ_ADD_CHECKS: a rule is 'TARGET COMMAND': $rule"
+    [ "$target" = "*" ] || [[ $needs == *" $target "* ]] || continue
+    if ! log=$(cd "$top" && bash -c "$cmd" 2>&1); then
+      tail -n 20 <<<"$log" >&2
+      die "add: the check for $target failed: $cmd"
+    fi
+  done
+}
+
+cmd_add() {
+  local live="" note=""
+  while [ $# -gt 0 ]; do
+    case $1 in
+      --live) [ $# -ge 2 ] || die "add: --live needs a value"; live=$2; shift 2 ;;
+      --note) [ $# -ge 2 ] || die "add: --note needs a value"; note=$2; shift 2 ;;
+      *) die "add: unknown argument $1" ;;
+    esac
+  done
+  cd "$top"
+  local branch; branch=$(git branch --show-current)
+  [ -n "$branch" ] || die "add: not on a branch"
+  [ "$branch" != "$RQ_MAIN" ] || die "add: this is $RQ_MAIN; work in a worktree on its own branch (release-queue start SLUG)"
+  case $branch in "$RQ_BATCH_BRANCH_PREFIX"*) die "add: $branch is a batch branch" ;; esac
+  [ -z "$(git status --porcelain --untracked-files=no)" ] || die "add: $branch has uncommitted changes; commit them first"
+  local ahead; ahead=$(git rev-list --count "$RQ_MAIN..HEAD")
+  [ "$ahead" -gt 0 ] || die "add: $branch has no commits that $RQ_MAIN does not have"
+  local clash
+  if ! clash=$(git merge-tree --write-tree --name-only "$RQ_MAIN" HEAD 2>/dev/null); then
+    clash=$(sed -n '2,/^$/p' <<<"$clash" | filter -v -e '^$')
+    if index_ready; then clash=$(filter -vxF "$RQ_INDEX_FILE" <<<"$clash"); fi
+    [ -z "$clash" ] || die "add: $branch conflicts with $RQ_MAIN in: $(paste -sd' ' <<<"$clash"); run 'git merge $RQ_MAIN' here, resolve, and queue again"
+  fi
+  local needs; needs=$(needs_of "$RQ_MAIN...HEAD")
+  run_add_checks "$needs"
+  locked
+  local f prev="" held=""
+  f=$state/entries/$(key "$branch")
+  [ -f "$f" ] && prev=$(field "$f" state)
+  # A branch that is in a cut can take new commits. They wait as a new
+  # entry. "resume" merges them into that batch, or the next cut takes them.
+  case $prev in cut:*) held=${prev#cut:} ;; esac
+  {
+    echo "branch=$branch"
+    echo "sha=$(git rev-parse HEAD)"
+    echo "worktree=$top"
+    echo "needs=$needs"
+    echo "live=$live"
+    echo "note=$note"
+    echo "queued=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+    echo "seq=$( if [ -f "$f" ]; then field "$f" seq; else date +%s%N; fi)"
+    echo "state=queued"
+  } > "$f.new"
+  mv "$f.new" "$f"
+  echo "queued $branch at $(git rev-parse --short HEAD) ($ahead commits; ships as: $needs)"
+  if [ -n "$held" ]; then
+    echo "  batch $held has an earlier commit of $branch. The conductor merges this one with 'release-queue resume $held', or the next cut does."
+  fi
+}
+
+cmd_ls() {
+  local f all=0 out pending="" st b sha now moved ref
+  case ${1:-} in --all) all=1 ;; "") ;; *) die "ls: unknown argument $1" ;; esac
+  out=$(for f in "$state/entries"/*; do
+    [ -e "$f" ] || continue
+    st=$(field "$f" state)
+    case $st in
+      queued | cut:*) ;;
+      merged:*)
+        if released "$(field "$f" sha)"; then
+          st=released:${st#merged:}
+          [ $all = 1 ] || continue
+        else
+          st=on-main:${st#merged:}
+        fi ;;
+      *) [ $all = 1 ] || continue ;;
+    esac
+    b=$(field "$f" branch); sha=$(field "$f" sha); moved=""
+    now=$(git rev-parse -q --verify "refs/heads/$b" || echo gone)
+    if [ "$st" = queued ] && [ "$now" != "$sha" ]; then
+      if [ "$now" = gone ]; then moved="  (branch deleted since queued)"
+      else moved="  (branch moved to $(git rev-parse --short "$now") since queued; queue it again)"; fi
+    fi
+    printf '%s\t%-20s %-28s %s  ships as %-16s %s%s\n' "$(field "$f" seq)" "$st" "$b" "${sha:0:9}" "$(field "$f" needs)" "$(field "$f" queued)" "$moved"
+  done | sort -n | cut -f2-)
+  if [ -n "$out" ]; then echo "$out"; else echo "the queue is empty"; fi
+  for f in "$state/entries"/*; do
+    [ -e "$f" ] || continue
+    case $(field "$f" state) in
+      merged:*) released "$(field "$f" sha)" || pending="$pending,$(field "$f" needs)" ;;
+    esac
+  done
+  if [ -n "$pending" ]; then
+    ref=$(released_ref)
+    local count="no $RQ_RELEASED_REF yet"
+    [ -z "$ref" ] || count="$(git rev-list --count "$ref..$RQ_MAIN") commits"
+    echo "on $RQ_MAIN, not released: $count; the next release ships as: $(join_needs <<<"$pending")"
+  fi
+}
+
+cmd_id() {
+  [ -n "$RQ_DECISIONS_FILE" ] || die "id: no decisions log is set (RQ_DECISIONS_FILE in .release-queue.conf)"
+  local n=${1:-1} branch max=0 i ref wt esc re
+  [[ $n =~ ^[1-9][0-9]*$ ]] || die "id: N must be a positive number"
+  branch=$(git branch --show-current); branch=${branch:-detached}
+  esc=$(printf '%s' "$RQ_ID_PREFIX" | sed 's/[][\.*^$/+?(){}|]/\\&/g')
+  re="^(\*\*|#{1,6} )?${esc}[0-9]+"
+  # The highest number in the input, or nothing.
+  top_id() { filter -oE "$re" | filter -oE '[0-9]+$' | sed -E 's/^0+([0-9])/\1/' | sort -n | tail -n1; }
+  bump() { [ -z "$1" ] || [ "$1" -le "$max" ] || max=$1; }
+  locked
+  # Every local branch, and the released ref.
+  for ref in $(git for-each-ref --format='%(refname)' refs/heads) $(released_ref); do
+    i=$(git show "$ref:$RQ_DECISIONS_FILE" 2>/dev/null | top_id || true)
+    bump "$i"
+  done
+  # Every worktree's working copy: an id that is written but not committed is taken.
+  while IFS= read -r wt; do
+    [ -f "$wt/$RQ_DECISIONS_FILE" ] || continue
+    i=$(top_id < "$wt/$RQ_DECISIONS_FILE")
+    bump "$i"
+  done < <(git worktree list --porcelain | sed -n 's/^worktree //p')
+  # Earlier reservations.
+  i=$(top_id < "$state/ids")
+  bump "$i"
+  local id
+  for _ in $(seq "$n"); do
+    max=$((max + 1))
+    id=$(printf '%s%0*d' "$RQ_ID_PREFIX" "$RQ_ID_WIDTH" "$max")
+    echo "$id $branch $(date -u +%Y-%m-%d)" >> "$state/ids"
+    echo "$id"
+  done
+}
+
+cmd_drop() {
+  local b=${1:-}
+  [ -n "$b" ] || die "drop: give a branch name"
+  locked
+  local f st
+  f=$state/entries/$(key "$b")
+  [ -f "$f" ] || die "drop: $b is not queued"
+  st=$(field "$f" state)
+  case $st in
+    queued) ;;
+    cut:*) echo "release-queue: batch ${st#cut:} has merged $b already; undo it there, or abandon the batch" >&2 ;;
+    *) die "drop: $b is $st, not queued" ;;
+  esac
+  setfield "$f" state dropped
+  echo "dropped $b"
+}
+
+# Merge every queued branch, oldest first, into the batch worktree. Stop at
+# a conflict. The conductor resolves it, commits, and runs resume.
+merge_queue() { # batch worktree
+  local rel=$1 wt=$2 f g b sha bad
+  for f in $(for g in "$state/entries"/*; do
+      if [ -e "$g" ] && [ "$(field "$g" state)" = queued ]; then echo "$(field "$g" seq) $g"; fi
+    done | sort -n | cut -d' ' -f2); do
+    b=$(field "$f" branch); sha=$(field "$f" sha)
+    setfield "$f" state "cut:$rel"
+    echo "merged=$b $sha $(field "$f" needs)" >> "$state/releases/$rel"
+    if git -C "$wt" merge -q --no-ff --no-edit -m "Merge $b ($rel)" "$sha"; then
+      continue
+    fi
+    bad=$(git -C "$wt" diff --name-only --diff-filter=U)
+    if index_ready && [ "$bad" = "$RQ_INDEX_FILE" ]; then
+      regen_index "$wt"
+      git -C "$wt" add "$RQ_INDEX_FILE"
+      git -C "$wt" commit -q --no-edit
+      echo "  $b: $RQ_INDEX_FILE regenerated (both sides added decisions)"
+      continue
+    fi
+    echo "release-queue: $b conflicts with what $rel has already." >&2
+    echo "  Resolve it in $wt, commit, then run: release-queue resume $rel" >&2
+    return 1
+  done
+  # A clean merge of two decision logs still moves line numbers, so the
+  # index is regenerated once at the end.
+  if index_ready; then
+    regen_index "$wt"
+    if [ -n "$(git -C "$wt" status --porcelain -- "$RQ_INDEX_FILE")" ]; then
+      git -C "$wt" add "$RQ_INDEX_FILE"
+      git -C "$wt" commit -q -m "Regenerate $RQ_INDEX_FILE ($rel)"
+      echo "  $RQ_INDEX_FILE regenerated"
+    fi
+  fi
+}
+
+summary() { # batch
+  local rel=$1 f=$state/releases/$1
+  echo "batch $rel in $(field "$f" worktree) (branch $(field "$f" branch))"
+  sed -n 's/^merged=\([^ ]*\) \([^ ]\{9\}\)[^ ]* \(.*\)/  merged \1 \2 (\3)/p' "$f"
+  echo "  ships as: $(sed -n 's/^merged=[^ ]* [^ ]* //p' "$f" | join_needs)"
+}
+
+cmd_cut() {
+  locked
+  local any=0 f
+  for f in "$state/entries"/*; do
+    if [ -e "$f" ] && [ "$(field "$f" state)" = queued ]; then any=1; fi
+  done
+  [ $any = 1 ] || die "cut: nothing is queued"
+  local rel n=1 wt br
+  while :; do
+    rel=r$(date -u +%Y%m%d)-$n
+    [ -e "$state/releases/$rel" ] || git rev-parse -q --verify "refs/heads/$RQ_BATCH_BRANCH_PREFIX$rel" >/dev/null || break
+    n=$((n + 1))
+  done
+  wt=$(wt_path "$rel"); br=$RQ_BATCH_BRANCH_PREFIX$rel
+  git worktree add -q -b "$br" "$wt" "$RQ_MAIN"
+  init_submodules "$wt"
+  printf 'release=%s\nbranch=%s\nbase=%s\nworktree=%s\n' "$rel" "$br" "$(git rev-parse "$RQ_MAIN")" "$wt" > "$state/releases/$rel"
+  merge_queue "$rel" "$wt" || exit 1
+  summary "$rel"
+}
+
+cmd_resume() {
+  local rel=${1:-}
+  [ -n "$rel" ] || die "resume: give a batch id"
+  locked
+  [ -f "$state/releases/$rel" ] || die "resume: no batch $rel"
+  local wt; wt=$(field "$state/releases/$rel" worktree)
+  [ -z "$(git -C "$wt" status --porcelain --untracked-files=no)" ] || die "resume: $wt has uncommitted changes; finish the merge first"
+  merge_queue "$rel" "$wt" || exit 1
+  summary "$rel"
+}
+
+# Queue a cut batch's branches again and remove its worktree.
+cmd_abandon() {
+  local rel=${1:-}
+  [ -n "$rel" ] || die "abandon: give a batch id"
+  locked
+  [ -f "$state/releases/$rel" ] || die "abandon: no batch $rel"
+  local f wt br
+  br=$(field "$state/releases/$rel" branch)
+  if git merge-base --is-ancestor "$br" "$RQ_MAIN" 2>/dev/null; then die "abandon: $RQ_MAIN has $br already"; fi
+  for f in "$state/entries"/*; do
+    [ -e "$f" ] || continue
+    if [ "$(field "$f" state)" = "cut:$rel" ]; then setfield "$f" state queued; fi
+  done
+  wt=$(field "$state/releases/$rel" worktree)
+  git worktree remove --force "$wt"
+  git branch -q -D "$br"
+  rm "$state/releases/$rel"
+  echo "batch $rel abandoned; its branches are queued again"
+}
+
+cmd_done() {
+  local rel=${1:-}
+  [ -n "$rel" ] || die "done: give a batch id"
+  locked
+  [ -f "$state/releases/$rel" ] || die "done: no batch $rel"
+  local f wt br
+  br=$(field "$state/releases/$rel" branch)
+  git merge-base --is-ancestor "$br" "$RQ_MAIN" || die "done: $RQ_MAIN does not have $br yet; fast-forward $RQ_MAIN to it first (git merge --ff-only $br in the main checkout)"
+  for f in "$state/entries"/*; do
+    [ -e "$f" ] || continue
+    if [ "$(field "$f" state)" = "cut:$rel" ]; then setfield "$f" state "merged:$rel"; fi
+  done
+  echo "integrated=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$state/releases/$rel"
+  wt=$(field "$state/releases/$rel" worktree)
+  if ! { git worktree remove "$wt" && git branch -q -D "$br"; }; then
+    echo "release-queue: left $wt in place (it has changes)" >&2
+  fi
+  if [ "$RQ_PUSH_DEPLOYS" = yes ]; then
+    echo "batch $rel is on $RQ_MAIN. Do not push $RQ_MAIN: a push deploys. Push it when the owner asks for a release ($RQ_PROCEDURE)."
+  else
+    echo "batch $rel is on $RQ_MAIN. It is released when $RQ_RELEASED_REF has it ($RQ_PROCEDURE)."
+  fi
+}
+
+usage() { sed -n '9,17p' "$0" | sed 's/^# \{0,1\}//'; }
+
+sub=${1:-ls}
+[ $# -eq 0 ] || shift
+case $sub in
+  start) cmd_start "$@" ;;
+  add) cmd_add "$@" ;;
+  ls) cmd_ls "$@" ;;
+  id) cmd_id "$@" ;;
+  drop) cmd_drop "$@" ;;
+  cut) cmd_cut ;;
+  resume) cmd_resume "$@" ;;
+  abandon) cmd_abandon "$@" ;;
+  done) cmd_done "$@" ;;
+  help | -h | --help) usage ;;
+  *) die "unknown command $sub (start, id, add, ls, drop, cut, resume, abandon, done, help)" ;;
+esac

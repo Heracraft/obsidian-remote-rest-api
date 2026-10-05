@@ -178,3 +178,47 @@ A release is an annotated tag `X.Y.Z` on `main`. Pushing it makes `.github/workf
    git push origin main 0.2.0
    gh run watch
    ```
+
+<!-- agent-release-queue:begin (managed by agent-release-queue 0.2.0; install.sh replaces this block) -->
+## Work in a worktree; main changes only through the release queue
+
+Several agents work in this repository at the same time. Each agent works
+on its own branch in its own worktree. One conductor session merges the
+branches into `main`. `docs/release-queue/PROCEDURE.md` is the full procedure.
+
+1. Start each change in a new worktree. You do not need to ask first.
+   Run `tools/release-queue/release-queue start <slug>` and work in the path
+   that it prints.
+2. Do not edit files in the main checkout. It stays on `main`.
+3. Add a claim line to `docs/STATUS.md` before you start, and commit it.
+   At the end, add a line that tells what is done and what is not.
+4. Close each checklist item with its evidence: the command and its output.
+   The words "tests pass" close no item.
+5. Commit the finished branch and run `git merge main`. Run the
+   checks again. Then queue the branch:
+   `tools/release-queue/release-queue add --live "<what to check after the release>"`.
+6. Do not merge into `main`, push `main`, tag or deploy. The conductor does
+   these steps.
+7. If the conductor asks for a change, make it on the same branch. Then
+   run `add` again.
+8. Ask the user before you switch a worktree to another branch. Ask before
+   you delete a worktree that is not yours.
+
+## Trust the reader
+
+This rule applies to each line that a user reads: CLI output, docs, site
+and app copy, emails and agent instructions.
+`docs/release-queue/TRUST-THE-READER.md` gives the reasons and examples.
+
+1. Say what is true, in the place where the reader looks for it, one
+   time. Then stop.
+2. Give help only where the reader asked for it (`--help`, a docs page,
+   a tutorial) or is stuck (an error, a refusal).
+3. A CLI line for a command that worked tells the result. It does not
+   end with the next command. Put state for a row of a table in a column.
+4. Do not reassure, describe what the screen shows, or end a page with
+   "next, read X". Give each fact one page, and link to it.
+5. Test each line against a user who reads it for the fiftieth time. If
+   the line gives that user nothing, remove it. Keep it only when it
+   prevents a loss that cannot be undone, or unblocks the user.
+<!-- agent-release-queue:end -->
