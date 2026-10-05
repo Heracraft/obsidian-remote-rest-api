@@ -655,7 +655,7 @@ std.manifestYamlDoc(
             name: 'emitter',
             'in': 'path',
             required: true,
-            description: "The Obsidian object whose event to follow (`vault`, `metadataCache`, `workspace`), or the plugin id of an extension that registered events.",
+            description: "The Obsidian object whose event to follow (`vault`, `metadataCache`), or the plugin id of an extension that registered events.",
             schema: { type: 'string' },
           },
           {

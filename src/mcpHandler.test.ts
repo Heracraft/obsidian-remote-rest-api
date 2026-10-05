@@ -1252,7 +1252,7 @@ describe("McpHandler", () => {
       );
       const supported: Record<string, string[]> = {
         vault: ["modify"],
-        workspace: ["file-open"],
+        metadataCache: ["changed"],
         "some-extension": ["thing-happened"],
       };
       const fake = {
@@ -1315,7 +1315,7 @@ describe("McpHandler", () => {
       const { events, createListener } = fakeEvents();
       const mcp = build(SIGNED, { events });
       await overHttp(mcp, () =>
-        getToolCallback("events_get_listener_url")({ emitter: "workspace", event: "file-open", filter: {} }),
+        getToolCallback("events_get_listener_url")({ emitter: "metadataCache", event: "changed", filter: {} }),
       );
       expect(createListener.mock.calls[0][2]).toBeNull();
     });
@@ -1325,9 +1325,9 @@ describe("McpHandler", () => {
       const mcp = build(SIGNED, { events });
       await expect(
         overHttp(mcp, () =>
-          getToolCallback("events_get_listener_url")({ emitter: "workspace", event: "quick-preview" }),
+          getToolCallback("events_get_listener_url")({ emitter: "metadataCache", event: "resolve" }),
         ),
-      ).rejects.toThrow(/not a streamable workspace event.*file-open.*some-extension: thing-happened/);
+      ).rejects.toThrow(/not a streamable metadataCache event.*changed.*some-extension: thing-happened/);
       expect(createListener).not.toHaveBeenCalled();
     });
 

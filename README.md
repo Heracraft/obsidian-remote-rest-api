@@ -49,7 +49,7 @@ Access your vault through the **REST API** or the **built-in [MCP server](https:
 - **Read, create, update, or delete notes** — full CRUD on any file in your vault, including binary files
 - **Surgically patch specific sections** — target a heading, block reference, or frontmatter key and append, prepend, replace, delete, or move just that section without touching the rest of the file
 - **Search your vault** — simple full-text search or structured [JsonLogic](https://jsonlogic.com/) queries against note metadata (frontmatter, tags, path, content)
-- **Follow vault events** — subscribe to Obsidian events (a note created, its frontmatter changed, a file opened) as a filtered Server-Sent Events stream
+- **Follow vault events** — subscribe to Obsidian events (a note created, its frontmatter changed, a note renamed) as a filtered Server-Sent Events stream
 - **Query tags** — list all tags across your vault with usage counts
 - **Extend the API** — other plugins can register their own routes via the [API extension interface](https://github.com/coddingtonbear/obsidian-local-rest-api/wiki/Adding-your-own-API-Routes-via-an-Extension)
 
@@ -322,9 +322,8 @@ The events are Obsidian's own, and only these can be streamed:
 |---|---|
 | `vault` | `create`, `modify`, `delete`, `rename` |
 | `metadataCache` | `changed`, `deleted`, `resolve`, `resolved` |
-| `workspace` | `file-open`, `active-leaf-change`, `layout-change` |
 
-Each event is serialized by code written for it. That code decides exactly what is sent: the path, the file's NoteJson (the same shape `/search/` evaluates), and a few event-specific fields such as `oldPath` on a rename. Note content is sent only when the filter reads `file.content`. Events whose payloads are keystrokes, clipboard data, or UI objects (`editor-change`, `quick-preview`, `editor-paste`, the menu events, …) can't be streamed. To react to frontmatter changes, use `metadataCache` `changed`: `vault` `modify` fires before Obsidian has re-read the file's metadata.
+Each event is serialized by code written for it. That code decides exactly what is sent: the path, the file's NoteJson (the same shape `/search/` evaluates), and a few event-specific fields such as `oldPath` on a rename. Note content is sent only when the filter reads `file.content`. There is no `workspace` emitter, because no Obsidian window is open to produce editor, layout, or file-open events. To react to frontmatter changes, use `metadataCache` `changed`: `vault` `modify` fires before Obsidian has re-read the file's metadata.
 
 Each message's `id` is `<epoch>-<counter>`. A new epoch, or a gap in the counter, means events were missed. Nothing is replayed. A stream URL expires after the signed-URL lifetime (or `?ttl=<seconds>`), but a stream opened before then stays open. At most 16 streams can be open at once. Anyone holding a signed stream URL sees the paths and metadata of every event its filter matches, so treat it like the notes themselves. See the [API docs](https://coddingtonbear.github.io/obsidian-local-rest-api/) for the full message format.
 

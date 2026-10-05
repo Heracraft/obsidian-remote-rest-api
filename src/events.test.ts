@@ -209,8 +209,8 @@ describe("event streams over REST", () => {
     test.each([
       ["/events/nonsense/modify/"],
       ["/events/vault/changed/"],
-      ["/events/workspace/quick-preview/"],
-      ["/events/workspace/editor-change/"],
+      // No workspace exists in the headless server, so its events are gone too.
+      ["/events/workspace/file-open/"],
     ])("%s is not streamable", async (route) => {
       const result = await request(server)
         .post(route)
@@ -376,33 +376,16 @@ describe("event streams over REST", () => {
       });
     });
 
-    test("workspace active-leaf-change sends only the path and view type", async () => {
-      const grant = await subscribe("/events/workspace/active-leaf-change/");
-      const stream = await open(grant.url);
-      await waitFor(() => listenerCount(app.workspace, "active-leaf-change") === 1);
-
-      app.workspace._emit("active-leaf-change", {
-        view: { file: file("open.md"), getViewType: () => "markdown", editor: { secret: 1 } },
-      });
-
-      const received = await stream.next();
-      expect(received.data).toEqual({
-        emitter: "workspace",
-        event: "active-leaf-change",
-        path: "open.md",
-        file: null,
-        viewType: "markdown",
-      });
-    });
-
     test("the Obsidian listener is removed when the last stream closes", async () => {
-      const grant = await subscribe("/events/workspace/layout-change/");
+      // VaultOperations keeps a listener of its own on every metadataCache event.
+      const baseline = listenerCount(app.metadataCache, "resolved");
+      const grant = await subscribe("/events/metadataCache/resolved/");
       const stream = await open(grant.url);
-      await waitFor(() => listenerCount(app.workspace, "layout-change") === 1);
+      await waitFor(() => listenerCount(app.metadataCache, "resolved") === baseline + 1);
 
       stream.close();
 
-      await waitFor(() => listenerCount(app.workspace, "layout-change") === 0);
+      await waitFor(() => listenerCount(app.metadataCache, "resolved") === baseline);
       expect(handler.events.openStreamCount).toBe(0);
     });
 
@@ -768,7 +751,7 @@ describe("Obsidian's declared event surface", () => {
     return [...body.matchAll(/\bon\(name: '([^']+)'/g)].map((match) => match[1]).sort();
   }
 
-  const classes = { vault: "Vault", metadataCache: "MetadataCache", workspace: "Workspace" };
+  const classes = { vault: "Vault", metadataCache: "MetadataCache" };
 
   test.each(EVENT_EMITTERS.map((emitter) => [emitter]))(
     "every %s event is either streamable or deliberately not",
