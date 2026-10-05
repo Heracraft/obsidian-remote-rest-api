@@ -240,7 +240,7 @@ function decodeUtf8Strict(bytes: ArrayBuffer, path: string): string {
 type BinaryReadMode = "auto" | "bytes" | "link";
 
 const SIGNED_URLS_DISABLED_HINT =
-  'Signed URLs are disabled. Turn on "Enable signed URLs" under Settings → Local REST API → Advanced settings to use them.';
+  'Signed URLs are disabled. Start the server with ENABLE_SIGNED_URLS=true to use them.';
 
 /** The URI an embedded vault resource is labelled with. Not fetchable; a name for the bytes. */
 function vaultResourceUri(normalizedPath: string): string {

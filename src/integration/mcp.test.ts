@@ -662,7 +662,7 @@ describe("vault_read_binary tool", () => {
     signedUrlsEnabled = tools.some((t) => t.name === "vault_get_download_url");
     if (!signedUrlsEnabled) {
       console.warn(
-        "Signed URLs are off in the running plugin: link-mode assertions are skipped. Enable them under Advanced settings to cover that path.",
+        "Signed URLs are off in the running plugin: link-mode assertions are skipped. Start the server with ENABLE_SIGNED_URLS=true to cover that path.",
       );
     }
   });
@@ -806,7 +806,7 @@ signedUrlSuite("signed URL tools", () => {
     if (!enabled) {
       throw new Error(
         "Signed URLs are off in the running plugin, so this round trip exercised nothing. " +
-          'Enable "Enable signed URLs" under Advanced settings, or set OBSIDIAN_SIGNED_URLS=0 ' +
+          'Start the server with ENABLE_SIGNED_URLS=true, or set OBSIDIAN_SIGNED_URLS=0 ' +
           "to skip this suite deliberately.",
       );
     }

@@ -1114,7 +1114,7 @@ describe("McpHandler", () => {
       build(UNSIGNED);
       ops.readBinaryFileContent.mockResolvedValue(new ArrayBuffer(MaximumMcpBinaryBytes + 1));
       await expect(getToolCallback("vault_read_binary")({ path: "data.bin" })).rejects.toThrow(
-        /limit is .* GET \/vault\/<path>.*Enable signed URLs/s,
+        /limit is .* GET \/vault\/<path>.*ENABLE_SIGNED_URLS=true/s,
       );
     });
 
@@ -1166,7 +1166,7 @@ describe("McpHandler", () => {
       build(UNSIGNED);
       await expect(
         getToolCallback("vault_read_binary")({ path: PNG_PATH, as: "link" }),
-      ).rejects.toThrow(/Enable signed URLs/);
+      ).rejects.toThrow(/ENABLE_SIGNED_URLS=true/);
     });
 
     test("as: 'bytes' over the ceiling suggests a link when signed URLs are on", async () => {

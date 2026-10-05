@@ -37,7 +37,7 @@ export const ERROR_CODE_MESSAGES: Record<ErrorCode, string> = {
   [ErrorCode.InvalidFrontmatter]:
     "Document frontmatter could not be parsed.",
   [ErrorCode.ApiKeyAuthorizationRequired]:
-    "Authorization required.  Find your API Key in the 'Local REST API with MCP' section of your Obsidian settings.",
+    "Authorization required.  Use the API key the server logged when it generated it, kept in data.json in its data directory, or the API_KEY it was started with.",
   [ErrorCode.ContentTypeSpecificationRequired]:
     "Content-Type header required; this API accepts data in multiple content-types and you must indicate the content-type of your request body via the Content-Type header.",
   [ErrorCode.InvalidContentType]:
@@ -91,7 +91,7 @@ export const ERROR_CODE_MESSAGES: Record<ErrorCode, string> = {
   [ErrorCode.PathTraversalNotAllowed]:
     "Path traversal is not allowed. Paths must be relative, within the vault, and free of ':' and control characters.",
   [ErrorCode.ConfigDirAccessNotAllowed]:
-    "Access to the Obsidian configuration directory is not allowed. Enable 'Allow access to the configuration directory' under Settings → Local REST API → Advanced settings to permit it.",
+    "Access to the Obsidian configuration directory is not allowed. Start the server with ENABLE_CONFIG_DIR_ACCESS=true to permit it.",
   [ErrorCode.DestinationAlreadyExists]:
     "Destination file already exists.",
   [ErrorCode.FileOperationFailed]:
