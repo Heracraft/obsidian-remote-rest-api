@@ -1,0 +1,26 @@
+# The smallest working setup: one folder of notes, served on one address of a
+# private network you control.
+#
+#   BIND_IP=100.x.y.z docker compose up -d
+#
+# BIND_IP must be this machine's Tailscale (100.64.0.0/10) or WireGuard
+# address. Do NOT set it to a public address, and do not drop the address
+# from "ports": a bare "27124:27124" publishes on every interface of the host,
+# public ones included. The server refuses clients outside private networks
+# on its own, but a port nobody on the internet can reach is the first line.
+# See "Exposure" in README.md before putting this anywhere else.
+
+services:
+  notes-api:
+    image: ghcr.io/heracraft/obsidian-remote-rest-api:latest
+    restart: unless-stopped
+    # Match the owner of the folder below, so files the API writes are yours.
+    user: "${UID:-1000}:${GID:-1000}"
+    volumes:
+      - ${VAULT_DIR:-./vault}:/vault
+    ports:
+      - "${BIND_IP:?Set BIND_IP to this machine's Tailscale or WireGuard address}:27124:27124"
+    # environment:
+    #   API_KEY: "..."                 # otherwise one is generated and logged once
+    #   SUBJECT_ALT_NAMES: "notes.tailnet-name.ts.net"   # names on the HTTPS certificate
+    #   ENABLE_INSECURE_SERVER: "true"  # plain HTTP on 27123; only inside a tunnel

@@ -1,0 +1,44 @@
+# The server joins your tailnet as its own machine, through a Tailscale
+# sidecar, and publishes no port on the host at all. Nothing outside the
+# tailnet can reach it, whatever the host's firewall says.
+#
+#   TS_AUTHKEY=tskey-auth-... docker compose -f compose.tailscale.yaml up -d
+#
+# Then open https://notes.<your-tailnet>.ts.net:27124/ from any device on
+# the tailnet. With ENABLE_INSECURE_SERVER the WireGuard tunnel Tailscale
+# builds already encrypts the traffic, so plain HTTP on 27123 is reasonable.
+
+services:
+  tailscale:
+    image: tailscale/tailscale:stable
+    hostname: notes
+    restart: unless-stopped
+    environment:
+      TS_AUTHKEY: ${TS_AUTHKEY:?Set TS_AUTHKEY to a Tailscale auth key}
+      TS_STATE_DIR: /var/lib/tailscale
+      TS_USERSPACE: "false"
+    volumes:
+      - tailscale-state:/var/lib/tailscale
+    devices:
+      - /dev/net/tun:/dev/net/tun
+    cap_add:
+      - NET_ADMIN
+
+  notes-api:
+    image: ghcr.io/heracraft/obsidian-remote-rest-api:latest
+    restart: unless-stopped
+    user: "${UID:-1000}:${GID:-1000}"
+    # Share the sidecar's network: the API listens on its tailnet address.
+    network_mode: service:tailscale
+    depends_on:
+      - tailscale
+    volumes:
+      - ${VAULT_DIR:-./vault}:/vault
+    environment:
+      # Only the tailnet, not the rest of the private ranges.
+      ALLOWED_CLIENT_NETWORKS: "100.64.0.0/10, fd7a:115c:a1e0::/48, 127.0.0.0/8"
+      SUBJECT_ALT_NAMES: "notes"
+      ENABLE_INSECURE_SERVER: "true"
+
+volumes:
+  tailscale-state:
