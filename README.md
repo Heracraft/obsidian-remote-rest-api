@@ -59,7 +59,7 @@ You need Docker with Compose, a folder of notes, and this machine's address on y
 
 ```yaml
 services:
-  notes-api:
+  obsidian-rest:
     image: ghcr.io/heracraft/obsidian-remote-rest-api:latest
     restart: unless-stopped
     user: "${UID:-1000}:${GID:-1000}"
