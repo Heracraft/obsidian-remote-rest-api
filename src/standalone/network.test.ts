@@ -103,19 +103,15 @@ describe("checkClient", () => {
   });
 
   test("serves a private source with no forwarding headers", () => {
-    expect(checkClient(request("100.64.1.2"), defaults, false)).toEqual({ allowed: true });
+    expect(checkClient(request("100.64.1.2"), defaults)).toEqual({ allowed: true });
   });
 
   test("refuses a public source", () => {
-    expect(checkClient(request("198.51.100.1"), defaults, false)).toEqual({
+    expect(checkClient(request("198.51.100.1"), defaults)).toEqual({
       allowed: false,
       refused: "198.51.100.1",
       reason: "source",
     });
-  });
-
-  test("refuses a public source even when proxied public clients are trusted", () => {
-    expect(checkClient(request("198.51.100.1"), defaults, true).allowed).toBe(false);
   });
 
   test.each([
@@ -124,7 +120,7 @@ describe("checkClient", () => {
     { forwarded: 'for="[2001:db8::1]:443";proto=https' },
     { "x-forwarded-for": "unknown" },
   ])("refuses a proxied public client: %j", (headers) => {
-    expect(checkClient(request("172.18.0.3", headers), defaults, false)).toMatchObject({
+    expect(checkClient(request("172.18.0.3", headers), defaults)).toMatchObject({
       allowed: false,
       reason: "forwarded",
     });
@@ -132,11 +128,6 @@ describe("checkClient", () => {
 
   test("serves proxied private clients", () => {
     const headers = { "x-forwarded-for": "100.64.0.9:5555, 10.0.0.2", forwarded: "for=192.168.1.4" };
-    expect(checkClient(request("172.18.0.3", headers), defaults, false)).toEqual({ allowed: true });
-  });
-
-  test("serves a proxied public client only with the explicit opt-in", () => {
-    const req = request("172.18.0.3", { "x-forwarded-for": "203.0.113.5" });
-    expect(checkClient(req, defaults, true)).toEqual({ allowed: true });
+    expect(checkClient(request("172.18.0.3", headers), defaults)).toEqual({ allowed: true });
   });
 });

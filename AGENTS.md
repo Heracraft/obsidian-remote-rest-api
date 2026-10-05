@@ -104,7 +104,7 @@ After making any changes to REST API endpoints or MCP tools, update the matching
 
 ### The network restrictions
 
-`src/standalone/network.ts` keeps the server off the public internet: it refuses public binding addresses, public source addresses, and proxied public clients unless `ALLOW_PUBLIC_CLIENTS_THROUGH_AUTHENTICATING_PROXY` is set. Do not add a way around these checks, widen the default networks, or make the opt-in quieter. A change here needs tests in `src/standalone/network.test.ts`, and the Exposure section of the Readme must still describe exactly what the server enforces.
+`src/standalone/network.ts` keeps the server off the public internet: it refuses public binding addresses, public source addresses, and proxied public clients, and has no setting that turns any of that off. Do not add one, and do not widen the default networks. A change here needs tests in `src/standalone/network.test.ts`, and the Exposure section of the Readme must still describe exactly what the server enforces.
 
 ### Regenerating the compiled OpenAPI spec
 

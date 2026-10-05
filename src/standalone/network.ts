@@ -3,15 +3,13 @@
  *  This server hands out full read and write access to a folder of notes on
  *  one bearer token. It is meant for a private network: a Tailscale tailnet, a
  *  WireGuard tunnel, the Docker network a reverse proxy shares with it. It is
- *  not meant to face the internet, and it refuses to:
+ *  not meant to face the internet, and there is no setting that lets it:
  *
  *  - it will not bind to a public address, nor to a wildcard address while
  *    the machine it runs on has a public one;
  *  - it answers no request whose source address is public;
  *  - it answers no proxied request whose `X-Forwarded-For`, `X-Real-IP` or
- *    `Forwarded` header names a public client, unless the operator has
- *    explicitly said an authenticating proxy (forward auth, mTLS, an SSO
- *    gateway) stands in front of it.
+ *    `Forwarded` header names a public client.
  *
  *  "Private" means the ranges below. Tailscale hands out 100.64.0.0/10 and
  *  fd7a:115c:a1e0::/48; WireGuard tunnels conventionally use RFC 1918 or ULA
@@ -190,16 +188,11 @@ interface RequestLike {
 
 /** Whether a request may be served: its source address must be in the
  *  allowed networks, and so must every client a proxy says it is forwarding
- *  for, unless `trustProxiedPublicClients` is on. An entry a proxy wrote that
- *  is not an address ("unknown", an obfuscated name) counts as public. */
-export function checkClient(
-  req: RequestLike,
-  networks: Cidr[],
-  trustProxiedPublicClients: boolean,
-): ClientCheck {
+ *  for. An entry a proxy wrote that is not an address ("unknown", an
+ *  obfuscated name) counts as public. */
+export function checkClient(req: RequestLike, networks: Cidr[]): ClientCheck {
   const source = req.socket.remoteAddress;
   if (!isAllowed(source, networks)) return { allowed: false, refused: source ?? "unknown", reason: "source" };
-  if (trustProxiedPublicClients) return { allowed: true };
   for (const client of forwardedClients(req.headers)) {
     if (!isAllowed(client, networks)) return { allowed: false, refused: client, reason: "forwarded" };
   }

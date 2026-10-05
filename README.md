@@ -3,7 +3,7 @@
 The [Local REST API with MCP](https://github.com/coddingtonbear/obsidian-local-rest-api) plugin for Obsidian, as a standalone server in a container. Mount a folder of markdown notes, an Obsidian vault or any other, and your scripts and AI agents get the plugin's REST API and MCP server for it. Obsidian does not need to be installed.
 
 > [!CAUTION]
-> **Do not put this server on the public internet.** One API key gives full read, write and delete access to every note in the folder. Run it on a private network you control: a [Tailscale](https://tailscale.com/) tailnet or a WireGuard tunnel. The server refuses to bind to a public address and refuses clients from public addresses (see [Exposure](#exposure)). If you put it behind a public URL anyway, the reverse proxy **must** authenticate every request on that route itself (forward auth, mTLS, an SSO gateway) before it reaches this server. A bearer token alone is not enough.
+> **Do not put this server on the public internet.** One API key gives full read, write and delete access to every note in the folder. Run it on a private network you control: a [Tailscale](https://tailscale.com/) tailnet or a WireGuard tunnel. The server refuses to bind to a public address and refuses clients from public addresses (see [Exposure](#exposure)).
 
 <!-- toc -->
 
@@ -14,9 +14,7 @@ The [Local REST API with MCP](https://github.com/coddingtonbear/obsidian-local-r
     + [Claude Code](#claude-code)
     + [Claude Desktop](#claude-desktop)
     + [Cursor](#cursor)
-    + [Other clients](#other-clients)
 - [Exposure](#exposure)
-  * [If you must put it behind a public URL](#if-you-must-put-it-behind-a-public-url)
 - [Configuration](#configuration)
 - [How it differs from the plugin](#how-it-differs-from-the-plugin)
 - [Running it without Docker](#running-it-without-docker)
@@ -47,6 +45,7 @@ The REST API and the built-in [MCP server](https://modelcontextprotocol.io/) exp
 - append, prepend, replace, delete or move one heading, block or frontmatter key, leaving the rest of the file alone
 - search by text, or with [JsonLogic](https://jsonlogic.com/) queries over frontmatter, tags, links, backlinks, path and content
 - stream note creations, changes and renames as Server-Sent Events, filtered, whoever made them
+- share the folder with Obsidian, a sync client or `git`: outside changes reach the API within a second
 - list tags with usage counts
 - move notes, rewriting the wikilinks and markdown links that point at them
 
@@ -54,7 +53,7 @@ The API is the plugin's own code, so the [interactive API docs](https://coddingt
 
 ## Quick start
 
-You need Docker with Compose, a folder of notes, and this machine's address on your Tailscale or WireGuard network (`tailscale ip -4` prints it).
+You need Docker with Compose, a folder of notes, and this machine's address on your Tailscale or WireGuard network.
 
 `compose.yaml`:
 
@@ -65,12 +64,12 @@ services:
     restart: unless-stopped
     user: "${UID:-1000}:${GID:-1000}"
     volumes:
-      - ${VAULT_DIR:?Set VAULT_DIR to the folder to serve}:/vault
+      - ${VAULT_DIR}:/vault
     ports:
-      - "${BIND_IP:?Set BIND_IP to this machine's Tailscale or WireGuard address}:27124:27124"
+      - "${BIND_IP}:27124:27124"
     environment:
-      API_KEY: "${API_KEY:?Set API_KEY, for example to the output of openssl rand -hex 32}"
-      SUBJECT_ALT_NAMES: "${SUBJECT_ALT_NAMES:-}"
+      API_KEY: ${API_KEY}
+      SUBJECT_ALT_NAMES: ${BIND_IP},${SUBJECT_ALT_NAMES:-}
 ```
 
 `.env` next to it:
@@ -79,18 +78,13 @@ services:
 API_KEY=<output of: openssl rand -hex 32>
 BIND_IP=100.101.102.103
 VAULT_DIR=/home/you/Notes
-SUBJECT_ALT_NAMES=notes.your-tailnet.ts.net,100.101.102.103
 ```
 
 ```sh
 docker compose up -d
 ```
 
-Compose refuses to start until `API_KEY`, `BIND_IP` and `VAULT_DIR` are set. Keep `.env` out of version control and readable only by you (`chmod 600 .env`); rotating the key means changing it there and running `docker compose up -d` again.
-
-`user:` should be the owner of the folder, so the files the API writes belong to them. On first start the server generates a TLS certificate authority and keeps it in `.obsidian/plugins/obsidian-remote-rest-api/data.json` inside the folder, where the API itself cannot read it.
-
-If the folder is also an Obsidian vault, Obsidian can keep using it at the same time on any machine: changes made in Obsidian, by a sync client, or by `git pull` show up in the API within a second, and changes made through the API show up in Obsidian.
+Keep `.env` out of version control and readable only by you (`chmod 600 .env`).
 
 ### REST API
 
@@ -118,9 +112,9 @@ curl -k -X PATCH \
   https://100.101.102.103:27124/vault/path/to/note.md
 ```
 
-To drop `-k`, download the server's certificate authority from `https://<host>:27124/obsidian-local-rest-api.crt` and trust it in your OS or browser, or pass it to your client (`curl --cacert obsidian-local-rest-api.crt ...`). The authority is name-constrained: it can only vouch for `127.0.0.1`, `localhost`, the binding host, and the names in `SUBJECT_ALT_NAMES`, so trusting it does not let it (or anyone who obtains its key) impersonate other sites. Put every name and address you reach the server by in `SUBJECT_ALT_NAMES` (for example `notes.your-tailnet.ts.net,100.101.102.103`); changing it makes a new authority, which you then trust again.
+To drop `-k`, download the server's certificate authority from `https://<host>:27124/obsidian-local-rest-api.crt` and trust it in your OS or browser, or pass it to your client (`curl --cacert obsidian-local-rest-api.crt ...`). The authority is name-constrained: it can only vouch for `127.0.0.1`, `localhost`, the binding host, and the names in `SUBJECT_ALT_NAMES`, so trusting it does not let it (or anyone who obtains its key) impersonate other sites. The certificate covers `BIND_IP`; add host names with `SUBJECT_ALT_NAMES`, which makes a new authority to trust.
 
-Inside a Tailscale or WireGuard tunnel the traffic is already encrypted, so plain HTTP on port 27123 (`ENABLE_INSECURE_SERVER=true`, and publish 27123) is a reasonable way to avoid certificates. Never turn it on for any other network.
+Inside a Tailscale or WireGuard tunnel the traffic is already encrypted, so plain HTTP on port 27123 (`ENABLE_INSECURE_SERVER=true`, and publish 27123) is a reasonable way to avoid certificates.
 
 ### MCP clients
 
@@ -191,10 +185,6 @@ Add the following to `~/.cursor/mcp.json` (global) or `.cursor/mcp.json` (projec
 }
 ```
 
-#### Other clients
-
-Any MCP client that supports the Streamable HTTP transport can connect to `https://<host>:27124/mcp/` with an `Authorization: Bearer <your-api-key>` header.
-
 ## Exposure
 
 The server refuses:
@@ -207,60 +197,27 @@ The server refuses:
 The server cannot see where Docker publishes its port. `ports: ["27124:27124"]` publishes on every interface of the host, public ones included. Docker usually preserves the client's address, so the server still refuses the request, but in some setups (IPv6 to an IPv4 container, Docker's userland proxy) the client arrives as the Docker gateway, a private address, and the refusal no longer works. Use one of these, the first if you can:
 
 1. No published port at all. Use the [Tailscale sidecar](examples/compose.tailscale.yaml), and the server is reachable from your tailnet and nowhere else.
-2. A port published only on the host's Tailscale or WireGuard address (`BIND_IP` in [`compose.yaml`](compose.yaml), which refuses to start without it).
+2. A port published only on the host's Tailscale or WireGuard address (`BIND_IP` in [`compose.yaml`](compose.yaml)).
 
 Never publish a bare `"27124:27124"`, or on `0.0.0.0` or the host's public IP.
 
-### If you must put it behind a public URL
-
-Avoid this. If you do it anyway, the bearer token must not be the only protection:
-
-- The reverse proxy **must** authenticate every request on this route before forwarding it: forward auth (Authelia, Authentik, oauth2-proxy, Pomerium, Cloudflare Access) or mutual TLS. Basic auth over HTTPS is the weakest acceptable option.
-- Give the route its own hostname and apply the authentication to all of it, `/mcp/` and the signed-URL paths included. A signed URL works without the API key, so those paths need the proxy's authentication too.
-- Only then set `ALLOW_PUBLIC_CLIENTS_THROUGH_AUTHENTICATING_PROXY=true`. Without it the server refuses every forwarded public client, so a misconfigured proxy fails closed. With it the server logs a warning at every start.
-- Keep the proxy and this container on a private Docker network, and publish no port from this container.
-
-A Traefik example (the forward-auth service is not included):
-
-```yaml
-services:
-  notes-api:
-    image: ghcr.io/heracraft/obsidian-remote-rest-api:latest
-    user: "1000:1000"
-    volumes:
-      - ./vault:/vault
-    environment:
-      ENABLE_INSECURE_SERVER: "true"     # TLS ends at the proxy, on a private network
-      ENABLE_SECURE_SERVER: "false"
-      ALLOW_PUBLIC_CLIENTS_THROUGH_AUTHENTICATING_PROXY: "true"
-    networks: [proxy]
-    labels:
-      traefik.enable: "true"
-      traefik.http.routers.notes.rule: Host(`notes.example.com`)
-      traefik.http.routers.notes.tls: "true"
-      traefik.http.routers.notes.middlewares: notes-auth
-      traefik.http.middlewares.notes-auth.forwardauth.address: http://authelia:9091/api/authz/forward-auth
-      traefik.http.services.notes.loadbalancer.server.port: "27123"
-```
-
 ## Configuration
 
-Every setting is an environment variable. Set `API_KEY`; the rest have defaults. `compose.yaml` also requires `BIND_IP` and `VAULT_DIR`.
+Every setting is an environment variable. Set `API_KEY`; the rest have defaults.
 
 | Variable | Default | Meaning |
 |---|---|---|
 | `VAULT_PATH` | `/vault` | The folder to serve. |
-| `API_KEY` | none | The bearer token. Set it. Without it the server generates one on first start, logs it once and keeps it in the data directory, which suits a quick test and nothing else. |
+| `API_KEY` | none | The bearer token. Without it the server generates one on first start, logs it once, keeps it in the data directory, and warns at every start. |
 | `DATA_DIR` | `<vault>/.obsidian/plugins/obsidian-remote-rest-api` | Where the generated API key and TLS material are kept. The default sits in the configuration directory, which the API refuses to serve. |
 | `CONFIG_DIR` | `.obsidian` | The Obsidian configuration directory's name, which the API refuses to read or write. |
 | `PORT` | `27124` | HTTPS port. |
 | `INSECURE_PORT` | `27123` | HTTP port. |
 | `ENABLE_SECURE_SERVER` | `true` | Serve HTTPS. |
-| `ENABLE_INSECURE_SERVER` | `false` | Serve plain HTTP. Only inside a Tailscale or WireGuard tunnel, or behind a proxy on a private Docker network. |
+| `ENABLE_INSECURE_SERVER` | `false` | Serve plain HTTP. Only inside a Tailscale or WireGuard tunnel. |
 | `BINDING_HOST` | `0.0.0.0` | The address to listen on. Must be private; see [Exposure](#exposure). |
 | `ALLOWED_CLIENT_NETWORKS` | the private ranges | Comma-separated CIDRs clients may connect from. Can only narrow the private ranges. |
-| `ALLOW_PUBLIC_CLIENTS_THROUGH_AUTHENTICATING_PROXY` | `false` | Serve requests a proxy forwards for public clients. Only with forward auth or mTLS in front; see [Exposure](#exposure). |
-| `SUBJECT_ALT_NAMES` | none | Comma-separated host names and addresses for the HTTPS certificate. Changing it generates a new certificate authority. |
+| `SUBJECT_ALT_NAMES` | none | Comma-separated host names and addresses for the HTTPS certificate. `compose.yaml` adds `BIND_IP`. Changing it generates a new certificate authority. |
 | `TLS_CERT_FILE`, `TLS_KEY_FILE` | none | Use your own certificate (PEM, chain included) and key instead of the generated ones. |
 | `AUTHORIZATION_HEADER_NAME` | `Authorization` | The header that carries the bearer token. |
 | `ENABLE_SIGNED_URLS` | `true` | Allow signed URLs ([below](#signed-urls)). |
@@ -313,8 +270,6 @@ API_KEY=<your key> VAULT_PATH=~/Notes BINDING_HOST=100.101.102.103 node dist/ser
 | `/tags/` | GET | List all tags with usage counts |
 | `/` | GET | Server status and authentication check |
 | `/mcp/` | GET POST | MCP server |
-
-For full request/response details, see the [interactive docs](https://coddingtonbear.github.io/obsidian-local-rest-api/).
 
 ### The configuration directory is off-limits
 
