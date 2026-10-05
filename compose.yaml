@@ -10,7 +10,7 @@
 # every interface of the host, public ones included.
 
 services:
-  notes-api:
+  obsidian-rest:
     image: ghcr.io/heracraft/obsidian-remote-rest-api:latest
     restart: unless-stopped
     # The owner of VAULT_DIR, so files the API writes belong to them.
