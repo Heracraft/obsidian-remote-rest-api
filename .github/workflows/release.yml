@@ -1,53 +1,64 @@
-name: Release Obsidian Plugin
+name: Release image
 on:
   push:
-    tags:
-      - '*'
+    branches: [main]
+    tags: ['*.*.*']
+
+env:
+  # Registry names must be lower case; the repository owner is not.
+  IMAGE: ghcr.io/heracraft/obsidian-remote-rest-api
+
 jobs:
-  build:
+  image:
     runs-on: ubuntu-latest
     permissions:
       contents: write
+      packages: write
       id-token: write
       attestations: write
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-          fetch-tags: true
-
       - name: Fetch annotated tag objects
         run: git fetch --tags --force
-
-      - name: Use Node.js
-        uses: actions/setup-node@v4
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
         with:
-          node-version: '22'
-
-      - name: Build
-        run: |
-          npm install
-          npm run build --if-present
-
-      - name: Type check
-        run: npm run typecheck
-
-      - name: Run tests
-        run: npm test
-
-      - name: Attest build artifacts
-        uses: actions/attest-build-provenance@v2
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      # A tag X.Y.Z publishes X.Y.Z, X.Y and latest; a push to main publishes edge.
+      - id: meta
+        uses: docker/metadata-action@v5
         with:
-          subject-path: |
-            main.js
-            manifest.json
-            styles.css
-
-      - name: Create release
+          images: ${{ env.IMAGE }}
+          tags: |
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=raw,value=latest,enable=${{ startsWith(github.ref, 'refs/tags/') }}
+            type=edge,branch=main
+      - id: push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+      - uses: actions/attest-build-provenance@v2
+        with:
+          subject-name: ${{ env.IMAGE }}
+          subject-digest: ${{ steps.push.outputs.digest }}
+          push-to-registry: true
+      - name: Create the GitHub release
+        if: startsWith(github.ref, 'refs/tags/')
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           gh release create "${{ github.ref_name }}" \
             --title "${{ github.ref_name }}" \
-            --notes "$(git tag -l --format='%(contents:body)' '${{ github.ref_name }}')" \
-            main.js manifest.json styles.css
+            --notes "$(git tag -l --format='%(contents:body)' '${{ github.ref_name }}')"

@@ -1,25 +1,69 @@
 name: CI
-on: push
+on:
+  push:
+  pull_request:
+
 jobs:
-  build:
+  check:
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v4
-    - uses: actions/setup-node@v4
-      with:
-        node-version: '22'
-    - name: Install modules
-      run: npm i
-    - name: Lint
-      run: npm run lint
-    - name: Run tests
-      run: npm test
-    - name: Build
-      run: npm run build
-    # `npm run build` regenerates publicApi.js/publicApi.d.ts from src/publicApi.ts.
-    # If they differ from what is committed, the package's published types no longer
-    # describe the source they came from.
-    - name: Check generated extension API types are up to date
-      run: git diff --exit-code -- publicApi.js publicApi.d.ts
-    - name: Type check
-      run: npm run typecheck
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+      - uses: actions/setup-go@v5
+        with:
+          go-version: stable
+          cache: false
+      # The same jsonnet that generated the committed spec, so the check below
+      # compares content rather than two implementations' formatting.
+      - name: Install go-jsonnet
+        run: go install github.com/google/go-jsonnet/cmd/jsonnet@v0.22.0
+      - run: npm ci
+      - run: npm run lint
+      - run: npm run typecheck
+      - run: npm test
+      - run: npm run build
+      # src/mcpHandler.ts and the server embed docs/openapi.yaml, so a stale
+      # one means clients get outdated documentation.
+      - name: Check the compiled OpenAPI spec is up to date
+        run: |
+          npm run build-docs
+          git diff --exit-code -- docs/openapi.yaml
+
+  integration:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+      - run: npm ci
+      - name: Build the image
+        run: docker build -t obsidian-remote-rest-api:ci .
+      - name: Start the container on an empty folder
+        run: |
+          mkdir -p "$RUNNER_TEMP/vault"
+          docker run -d --name api --user "$(id -u):$(id -g)" \
+            -v "$RUNNER_TEMP/vault:/vault" \
+            -p 127.0.0.1:27123:27123 -p 127.0.0.1:27124:27124 \
+            -e ENABLE_INSECURE_SERVER=true -e API_KEY=ci-key \
+            obsidian-remote-rest-api:ci
+          for i in $(seq 1 30); do
+            [ "$(docker inspect -f '{{.State.Health.Status}}' api)" = healthy ] && break
+            curl -sf http://127.0.0.1:27123/ >/dev/null && break
+            sleep 1
+          done
+          docker logs api
+      - name: Run the integration suite against it
+        env:
+          OBSIDIAN_HOST: http://127.0.0.1:27123
+          OBSIDIAN_HTTPS_HOST: https://127.0.0.1:27124
+          OBSIDIAN_API_KEY: ci-key
+          OBSIDIAN_VAULT_PATH: ${{ runner.temp }}/vault
+        run: npm run test:integration
+      - name: Container logs
+        if: failure()
+        run: docker logs api
