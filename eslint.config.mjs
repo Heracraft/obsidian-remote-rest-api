@@ -57,6 +57,21 @@ export default defineConfig([
     },
   },
 
+  // The standalone server runs under plain Node, not in an Obsidian window, and
+  // src/standalone/obsidian *is* the Obsidian API there: rules about how a
+  // plugin should call that API, or behave inside the app, do not apply.
+  {
+    files: ["src/standalone/**/*.ts"],
+    rules: {
+      "obsidianmd/prefer-window-timers": "off",
+      "obsidianmd/rule-custom-message": "off",
+      "obsidianmd/prefer-file-manager-trash-file": "off",
+      "obsidianmd/hardcoded-config-path": "off",
+      "obsidianmd/no-global-this": "off",
+      "no-restricted-globals": "off",
+    },
+  },
+
   // Unit tests use tsconfig.test.json (which mocks out the obsidian package).
   {
     files: ["src/**/*.test.ts"],
