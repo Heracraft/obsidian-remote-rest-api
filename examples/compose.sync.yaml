@@ -1,0 +1,50 @@
+# The API keeps its TLS material in a separate volume (DATA_DIR=/data), so
+# Obsidian Sync does not copy the certificate authority's private key to other
+# devices when SYNC_CONFIGS syncs plugin settings.
+
+services:
+  obsidian-sync:
+    image: ghcr.io/${GHCR_REPO:-belphemur/obsidian-headless-sync-docker}:latest
+    container_name: obsidian-sync
+    environment:
+      # Required
+      OBSIDIAN_AUTH_TOKEN: ${OBSIDIAN_AUTH_TOKEN:?}
+      VAULT_NAME: ${VAULT_NAME:?}
+      # Required if vault uses end-to-end encryption
+      VAULT_PASSWORD: ${VAULT_PASSWORD:-}
+      # File ownership: UID:GID of the host user who should own vault files.
+      PUID: ${PUID:-1000}
+      PGID: ${PGID:-1000}
+      # Optional overrides
+      VAULT_PATH: ${VAULT_PATH:-/vault}
+      DEVICE_NAME: ${DEVICE_NAME:-obsidian-docker}
+      CONFLICT_STRATEGY: ${CONFLICT_STRATEGY:-merge}
+      EXCLUDED_FOLDERS: ${EXCLUDED_FOLDERS:-}
+      FILE_TYPES: ${FILE_TYPES:-}
+      SYNC_MODE: ${SYNC_MODE:-}
+      SYNC_CONFIGS: ${SYNC_CONFIGS:-}
+      CONFIG_DIR_NAME: ${CONFIG_DIR_NAME:-}
+    volumes:
+      - vault:/vault
+      - sync-config:/home/obsidian/.config
+    restart: unless-stopped
+  obsidian-rest:
+    image: ghcr.io/heracraft/obsidian-remote-rest-api:latest
+    restart: unless-stopped
+    user: "${PUID:-1000}:${PGID:-1000}"
+    depends_on:
+      - obsidian-sync
+    volumes:
+      - vault:/vault
+      - rest-data:/data
+    ports:
+      - "${BIND_IP:?}:27124:27124"
+    environment:
+      API_KEY: ${API_KEY:?}
+      DATA_DIR: /data
+      SUBJECT_ALT_NAMES: ${BIND_IP},${SUBJECT_ALT_NAMES:-}
+
+volumes:
+  vault:
+  sync-config:
+  rest-data:

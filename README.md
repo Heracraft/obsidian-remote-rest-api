@@ -86,6 +86,8 @@ docker compose up -d
 
 Keep `.env` out of version control and readable only by you (`chmod 600 .env`).
 
+[`examples/compose.sync.yaml`](examples/compose.sync.yaml) runs the API next to [obsidian-headless-sync-docker](https://github.com/Belphemur/obsidian-headless-sync-docker), which keeps the folder in sync with Obsidian Sync.
+
 ### REST API
 
 ```sh
