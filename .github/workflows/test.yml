@@ -51,6 +51,20 @@ jobs:
       - run: npm ci
       - name: Build the image
         run: docker build -t obsidian-remote-rest-api:ci .
+      # A named volume takes the owner of /vault in the image. When this
+      # container creates the volume first, the server must still be able to
+      # write its data directory there.
+      - name: Start the container on a new named volume
+        run: |
+          docker volume create fresh-vault
+          docker run -d --name fresh -v fresh-vault:/vault -e API_KEY=ci-key obsidian-remote-rest-api:ci
+          for i in $(seq 1 30); do
+            docker logs fresh 2>&1 | grep -q "Listening on" && break
+            sleep 1
+          done
+          docker logs fresh
+          docker logs fresh 2>&1 | grep -q "Listening on"
+          docker rm -f fresh
       - name: Start the container on an empty folder
         run: |
           mkdir -p "$RUNNER_TEMP/vault"

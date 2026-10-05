@@ -18,8 +18,11 @@ COPY package.json package-lock.json ./
 RUN npm ci --omit=dev --no-audit --no-fund && npm cache clean --force
 COPY --from=build /src/dist ./dist
 
-# The folder to serve. Mount it here; nothing else is required.
+# The folder to serve. Mount it here; nothing else is required. /vault and
+# /data (for DATA_DIR=/data) belong to the node user in the image, so a new
+# named volume mounted on either starts with that owner.
 ENV VAULT_PATH=/vault
+RUN mkdir -p /vault /data && chown node:node /vault /data
 # 27124 is HTTPS (on by default), 27123 is HTTP (ENABLE_INSECURE_SERVER=true).
 EXPOSE 27124 27123
 
