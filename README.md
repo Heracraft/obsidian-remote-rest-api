@@ -72,7 +72,7 @@ services:
       SUBJECT_ALT_NAMES: ${BIND_IP},${SUBJECT_ALT_NAMES:-}
 ```
 
-`.env` next to it:
+`.env`:
 
 ```sh
 API_KEY=<output of: openssl rand -hex 32>
