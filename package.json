@@ -79,5 +79,8 @@
     "@types/express": "^4.17.13",
     "obsidian": "^1.0.0",
     "zod": "^3.25.76"
+  },
+  "dependencies": {
+    "sharp": "^0.34.5"
   }
 }
