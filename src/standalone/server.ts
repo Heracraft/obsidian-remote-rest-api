@@ -84,12 +84,14 @@ async function main(): Promise<void> {
   if (!settings.apiKey) {
     if (state.apiKey) {
       settings.apiKey = state.apiKey;
+      warnGeneratedKey(path.join(config.dataDir, "data.json"));
     } else {
       settings.apiKey = forge.md.sha256.create().update(forge.random.getBytesSync(128)).digest().toHex();
       state.apiKey = settings.apiKey;
       stateChanged = true;
       log(`Generated an API key and saved it to ${path.join(config.dataDir, "data.json")}`);
       log(`API key: ${settings.apiKey}`);
+      warnGeneratedKey(path.join(config.dataDir, "data.json"));
     }
   }
 
@@ -189,6 +191,16 @@ async function main(): Promise<void> {
   };
   process.on("SIGTERM", () => shutdown("SIGTERM"));
   process.on("SIGINT", () => shutdown("SIGINT"));
+}
+
+/** Every start without API_KEY says so: a generated key lives only in the
+ *  vault folder and in the first start's log, which is easy to lose and
+ *  hard to rotate. */
+function warnGeneratedKey(file: string): void {
+  console.warn(
+    `[REST API] WARNING: API_KEY is not set, so the server uses the key it generated, kept in ${file}. ` +
+      "Set API_KEY (for example from `openssl rand -hex 32`) to choose and rotate the key yourself.",
+  );
 }
 
 /** The TLS material for the HTTPS server: files named by TLS_CERT_FILE and
