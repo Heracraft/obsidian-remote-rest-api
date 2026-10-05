@@ -1,5 +1,5 @@
 import { TFile } from "obsidian";
-import type { App, CachedMetadata, TAbstractFile, WorkspaceLeaf } from "obsidian";
+import type { App, CachedMetadata, TAbstractFile } from "obsidian";
 import type { IncomingMessage, ServerResponse } from "http";
 import { randomBytes } from "crypto";
 import { createSession, Session } from "better-sse";
@@ -29,8 +29,8 @@ import { UrlSigner, buildEventStreamUrl, eventStreamResource } from "./signedUrl
  * test than `/search/`'s, which fetches content for any filter that says "content".
  */
 
-/** The three Obsidian objects whose events can be streamed. */
-export const EVENT_EMITTERS = ["vault", "metadataCache", "workspace"] as const;
+/** The two Obsidian objects whose events can be streamed. */
+export const EVENT_EMITTERS = ["vault", "metadataCache"] as const;
 export type EventEmitterName = (typeof EVENT_EMITTERS)[number];
 
 /**
@@ -42,7 +42,6 @@ export type EventEmitterName = (typeof EVENT_EMITTERS)[number];
 export const STREAMABLE_EVENTS = {
   vault: ["create", "modify", "delete", "rename"],
   metadataCache: ["changed", "deleted", "resolve", "resolved"],
-  workspace: ["file-open", "active-leaf-change", "layout-change"],
 } as const satisfies Record<EventEmitterName, readonly string[]>;
 
 /**
@@ -56,21 +55,6 @@ export const STREAMABLE_EVENTS = {
 export const UNSTREAMABLE_EVENTS: Record<EventEmitterName, Record<string, string>> = {
   vault: {},
   metadataCache: {},
-  workspace: {
-    "quick-preview": "fires on every keystroke and carries the note's full text",
-    "editor-change": "fires on every keystroke and carries a live Editor",
-    "editor-paste": "carries clipboard data",
-    "editor-drop": "carries drag-and-drop data",
-    "file-menu": "carries a context menu, which means nothing to a remote client",
-    "files-menu": "carries a context menu, which means nothing to a remote client",
-    "url-menu": "carries a context menu, which means nothing to a remote client",
-    "editor-menu": "carries a context menu, which means nothing to a remote client",
-    "window-open": "carries window objects, which mean nothing to a remote client",
-    "window-close": "carries window objects, which mean nothing to a remote client",
-    resize: "UI-only; nothing a remote client can act on",
-    "css-change": "UI-only; nothing a remote client can act on",
-    quit: "fires as Obsidian shuts down, which closes every stream anyway",
-  },
 };
 
 export type StreamableEventName<E extends EventEmitterName = EventEmitterName> =
@@ -108,8 +92,6 @@ export interface StreamedEvent {
   oldPath?: string;
   /** `metadataCache` `deleted`: the frontmatter and tags the file had. */
   previous?: { frontmatter: Record<string, unknown>; tags: string[] } | null;
-  /** `workspace` `active-leaf-change`: the type of the newly active view. */
-  viewType?: string | null;
 }
 
 /**
@@ -197,23 +179,6 @@ const SERIALIZERS: {
       file: await noteOrNull(context, file),
     }),
     resolved: async () => ({ path: null, file: null }),
-  },
-  workspace: {
-    "file-open": async (context, [file]) => ({
-      path: pathOf(file),
-      file: await noteOrNull(context, file),
-    }),
-    // Only the leaf's file path and view type: a WorkspaceLeaf is a live UI object.
-    "active-leaf-change": async (_context, [leaf]) => {
-      const view = (leaf as WorkspaceLeaf | null)?.view;
-      const file: unknown = view && "file" in view ? (view as { file: unknown }).file : null;
-      return {
-        path: pathOf(file),
-        file: null,
-        viewType: view ? view.getViewType() : null,
-      };
-    },
-    "layout-change": async () => ({ path: null, file: null }),
   },
 };
 

@@ -777,9 +777,8 @@ describe("vault_read_binary tool", () => {
   });
 });
 
-// Signed URLs are on by default, so this suite runs by default and opts *out*, unlike
-// the OBSIDIAN_ACTIVE_FILE / OBSIDIAN_TEST_OPEN_FILE suites which opt in. Gating at
-// registration time is what lets Jest report a skip as a skip.
+// Signed URLs are on by default, so this suite runs by default and opts *out* rather
+// than in. Gating at registration time is what lets Jest report a skip as a skip.
 const signedUrlSuite = process.env.OBSIDIAN_SIGNED_URLS === "0" ? describe.skip : describe;
 
 signedUrlSuite("signed URL tools", () => {
@@ -1309,78 +1308,6 @@ describe("tag_list tool", () => {
       expect(typeof tag.name).toBe("string");
       expect(typeof tag.count).toBe("number");
     }
-  });
-});
-
-// ---------------------------------------------------------------------------
-// command_list + command_execute
-// ---------------------------------------------------------------------------
-
-describe("command_list tool", () => {
-  test("returns commands with id and name strings", async () => {
-    const result = await client.callTool({ name: "command_list", arguments: {} });
-    const body = jsonOf<{ commands: { id: string; name: string }[] }>(result);
-    expect(Array.isArray(body.commands)).toBe(true);
-    expect(body.commands.length).toBeGreaterThan(0);
-    for (const cmd of body.commands) {
-      expect(typeof cmd.id).toBe("string");
-      expect(typeof cmd.name).toBe("string");
-    }
-  });
-});
-
-describe("command_execute tool", () => {
-  test("executes editor:save-file and returns OK", async () => {
-    const listResult = await client.callTool({ name: "command_list", arguments: {} });
-    const { commands } = jsonOf<{ commands: { id: string }[] }>(listResult);
-    if (!commands.find((c) => c.id === "editor:save-file")) {
-      throw new Error(
-        'Command "editor:save-file" not found — cannot safely execute an arbitrary command.'
-      );
-    }
-    const result = await client.callTool({
-      name: "command_execute",
-      arguments: { commandId: "editor:save-file" },
-    });
-    expect(jsonOf<any>(result).message).toBe("OK");
-  });
-});
-
-// ---------------------------------------------------------------------------
-// open_file
-// ---------------------------------------------------------------------------
-
-// Skipped by default: this is the one test that pulls Obsidian to the foreground and
-// steals focus, which is disruptive enough to be worth opting into rather than paying
-// for on every run — keystrokes intended elsewhere can land in whatever note it opened.
-// Set OBSIDIAN_TEST_OPEN_FILE=1 to run it.
-const openFileTest =
-  process.env.OBSIDIAN_TEST_OPEN_FILE === "1" ? test : test.skip;
-
-describe("open_file tool", () => {
-  openFileTest("opens fixture file and returns OK", async () => {
-    const result = await client.callTool({
-      name: "open_file",
-      arguments: { path: TEST_PATH },
-    });
-    expect(jsonOf<any>(result).message).toBe("OK");
-  });
-});
-
-// ---------------------------------------------------------------------------
-// active_file_* (conditional on OBSIDIAN_ACTIVE_FILE)
-// ---------------------------------------------------------------------------
-
-const activeRun =
-  typeof process.env.OBSIDIAN_ACTIVE_FILE === "string" &&
-  process.env.OBSIDIAN_ACTIVE_FILE.length > 0;
-const activeTest = activeRun ? test : test.skip;
-
-describe("active_file_get_path tool", () => {
-  activeTest("returns vault-relative path of active file", async () => {
-    const result = await client.callTool({ name: "active_file_get_path", arguments: {} });
-    const body = jsonOf<any>(result);
-    expect(typeof body.path).toBe("string");
   });
 });
 

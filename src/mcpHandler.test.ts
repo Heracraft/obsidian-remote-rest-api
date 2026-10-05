@@ -77,9 +77,6 @@ function makeMockOps() {
         adapter: new DataAdapter(),
         getAbstractFileByPath: jest.fn().mockReturnValue(mockFile),
       },
-      workspace: {
-        getActiveFile: jest.fn().mockReturnValue(mockFile),
-      },
     },
     listVaultDirectory: jest.fn().mockResolvedValue(["file1.md", "folder/"]),
     getFileMetadataObject: jest.fn().mockResolvedValue({
@@ -122,11 +119,6 @@ function makeMockOps() {
       .fn()
       .mockResolvedValue([{ filename: "a.md", score: 1, matches: [] }]),
     getAllTags: jest.fn().mockReturnValue([{ name: "todo", count: 3 }]),
-    listCommands: jest
-      .fn()
-      .mockReturnValue([{ id: "cmd-id", name: "Command Name" }]),
-    executeCommand: jest.fn(),
-    openVaultFile: jest.fn(),
     moveVaultFile: jest.fn().mockResolvedValue(""),
     copyVaultFile: jest.fn().mockResolvedValue(""),
   };
@@ -273,8 +265,8 @@ describe("McpHandler", () => {
 
   // ---- tool registration --------------------------------------------------
 
-  test("registers all 19 tools (the two signed-URL tools are there because that setting is on by default)", () => {
-    expect(registerTool).toHaveBeenCalledTimes(19);
+  test("registers all 15 tools (the two signed-URL tools are there because that setting is on by default)", () => {
+    expect(registerTool).toHaveBeenCalledTimes(15);
     const names = registerTool.mock.calls.map((c: unknown[]) => c[0]);
     expect(names).toEqual(
       expect.arrayContaining([
@@ -290,13 +282,9 @@ describe("McpHandler", () => {
         "vault_move",
         "vault_copy",
         "vault_get_document_map",
-        "active_file_get_path",
         "search_query",
         "search_simple",
         "tag_list",
-        "command_list",
-        "command_execute",
-        "open_file",
       ]),
     );
   });
@@ -310,11 +298,9 @@ describe("McpHandler", () => {
         "vault_read",
         "vault_read_binary",
         "vault_get_document_map",
-        "active_file_get_path",
         "search_query",
         "search_simple",
         "tag_list",
-        "command_list",
       ]) {
         expect(getToolAnnotations(name)).toEqual({
           readOnlyHint: true,
@@ -325,8 +311,8 @@ describe("McpHandler", () => {
       }
     });
 
-    test("vault_patch, vault_delete, vault_move, vault_copy, and command_execute are annotated as destructive", () => {
-      for (const name of ["vault_patch", "vault_delete", "vault_move", "vault_copy", "command_execute"]) {
+    test("vault_patch, vault_delete, vault_move, and vault_copy are annotated as destructive", () => {
+      for (const name of ["vault_patch", "vault_delete", "vault_move", "vault_copy"]) {
         const annotations = getToolAnnotations(name);
         expect(annotations.readOnlyHint).toBe(false);
         expect(annotations.destructiveHint).toBe(true);
@@ -766,12 +752,12 @@ describe("McpHandler", () => {
       build(UNSIGNED);
       expect(registeredNames()).not.toContain("vault_get_download_url");
       expect(registeredNames()).not.toContain("vault_get_upload_url");
-      expect(registerTool).toHaveBeenCalledTimes(17);
+      expect(registerTool).toHaveBeenCalledTimes(13);
       build();
       expect(registeredNames()).toEqual(
         expect.arrayContaining(["vault_get_download_url", "vault_get_upload_url"]),
       );
-      expect(registerTool).toHaveBeenCalledTimes(19);
+      expect(registerTool).toHaveBeenCalledTimes(15);
     });
 
     test("setSignedUrlsEnabled adds and removes the tools without rebuilding the handler", () => {
@@ -1266,7 +1252,7 @@ describe("McpHandler", () => {
       );
       const supported: Record<string, string[]> = {
         vault: ["modify"],
-        workspace: ["file-open"],
+        metadataCache: ["changed"],
         "some-extension": ["thing-happened"],
       };
       const fake = {
@@ -1329,7 +1315,7 @@ describe("McpHandler", () => {
       const { events, createListener } = fakeEvents();
       const mcp = build(SIGNED, { events });
       await overHttp(mcp, () =>
-        getToolCallback("events_get_listener_url")({ emitter: "workspace", event: "file-open", filter: {} }),
+        getToolCallback("events_get_listener_url")({ emitter: "metadataCache", event: "changed", filter: {} }),
       );
       expect(createListener.mock.calls[0][2]).toBeNull();
     });
@@ -1339,9 +1325,9 @@ describe("McpHandler", () => {
       const mcp = build(SIGNED, { events });
       await expect(
         overHttp(mcp, () =>
-          getToolCallback("events_get_listener_url")({ emitter: "workspace", event: "quick-preview" }),
+          getToolCallback("events_get_listener_url")({ emitter: "metadataCache", event: "resolve" }),
         ),
-      ).rejects.toThrow(/not a streamable workspace event.*file-open.*some-extension: thing-happened/);
+      ).rejects.toThrow(/not a streamable metadataCache event.*changed.*some-extension: thing-happened/);
       expect(createListener).not.toHaveBeenCalled();
     });
 
@@ -1980,13 +1966,6 @@ describe("McpHandler", () => {
         expect(ops.deleteVaultFile).not.toHaveBeenCalled();
       });
 
-      test("open_file refuses a config path", async () => {
-        await expect(
-          getToolCallback("open_file")({ path: ".obsidian/app.json" }),
-        ).rejects.toThrow(/configuration directory/i);
-        expect(ops.openVaultFile).not.toHaveBeenCalled();
-      });
-
       test("a sibling directory that merely shares the prefix is allowed", async () => {
         await getToolCallback("vault_write")({
           path: ".obsidian-backup/note.md",
@@ -2055,23 +2034,6 @@ describe("McpHandler", () => {
     });
   });
 
-  // ---- active_file_get_path -----------------------------------------------
-
-  describe("active_file_get_path", () => {
-    test("returns path of the active file", async () => {
-      const cb = getToolCallback("active_file_get_path");
-      const result = await cb({});
-      expect(ops.app.workspace.getActiveFile).toHaveBeenCalled();
-      expect(parseText(result).path).toBe("test.md");
-    });
-
-    test("throws when no file is active", async () => {
-      ops.app.workspace.getActiveFile.mockReturnValue(null);
-      const cb = getToolCallback("active_file_get_path");
-      await expect(cb({})).rejects.toThrow("No active file");
-    });
-  });
-
   // ---- search_query -------------------------------------------------------
 
   test("search_query calls searchJsonLogic and returns results", async () => {
@@ -2102,45 +2064,6 @@ describe("McpHandler", () => {
     const result = await cb({});
     expect(ops.getAllTags).toHaveBeenCalled();
     expect(parseText(result).tags).toEqual([{ name: "todo", count: 3 }]);
-  });
-
-  // ---- command_list -------------------------------------------------------
-
-  test("command_list returns all commands", async () => {
-    const cb = getToolCallback("command_list");
-    const result = await cb({});
-    expect(ops.listCommands).toHaveBeenCalled();
-    expect(parseText(result).commands).toEqual([
-      { id: "cmd-id", name: "Command Name" },
-    ]);
-  });
-
-  // ---- command_execute ----------------------------------------------------
-
-  test("command_execute calls executeCommand and returns OK", async () => {
-    const cb = getToolCallback("command_execute");
-    const result = await cb({ commandId: "cmd-id" });
-    expect(ops.executeCommand).toHaveBeenCalledWith("cmd-id");
-    expect(parseText(result).message).toBe("OK");
-  });
-
-  test("command_execute propagates error when command not found", async () => {
-    ops.executeCommand.mockImplementation(() => {
-      throw new Error("Command not found: bad-id");
-    });
-    const cb = getToolCallback("command_execute");
-    await expect(cb({ commandId: "bad-id" })).rejects.toThrow(
-      "Command not found",
-    );
-  });
-
-  // ---- open_file ----------------------------------------------------------
-
-  test("open_file calls openVaultFile and returns OK", async () => {
-    const cb = getToolCallback("open_file");
-    const result = await cb({ path: "notes/foo.md", newLeaf: true });
-    expect(ops.openVaultFile).toHaveBeenCalledWith("notes/foo.md", true);
-    expect(parseText(result).message).toBe("OK");
   });
 
   // ---- handleRequest ------------------------------------------------------
@@ -2187,8 +2110,8 @@ describe("McpHandler", () => {
 
       const first = await send(1);
       const second = await send(2);
-      expect(first.body.result.tools).toHaveLength(19);
-      expect(second.body.result.tools).toHaveLength(19);
+      expect(first.body.result.tools).toHaveLength(15);
+      expect(second.body.result.tools).toHaveLength(15);
       expect(first.headers["mcp-session-id"]).toBeUndefined();
       expect(second.headers["mcp-session-id"]).toBeUndefined();
     });
@@ -2328,7 +2251,7 @@ describe("McpHandler", () => {
         .send(sessionlessRequest(1, "tools/list"))
         .expect(200);
 
-      expect(res.body.result.tools).toHaveLength(19);
+      expect(res.body.result.tools).toHaveLength(15);
       expect(res.headers["mcp-session-id"]).toBeUndefined();
     });
 
@@ -2456,7 +2379,7 @@ describe("McpHandler", () => {
         .expect(200);
 
       const message = sseResult(res.text);
-      expect(message.result.tools).toHaveLength(19);
+      expect(message.result.tools).toHaveLength(15);
       const vaultList = (message.result.tools as { name: string; inputSchema: unknown }[]).find(
         (t) => t.name === "vault_list",
       );
@@ -3207,7 +3130,6 @@ describe("MCP vault path containment", () => {
     ["vault_delete", {}, "deleteVaultFile"],
     ["vault_get_document_map", {}, "getDocumentMapV2Object"],
     ["vault_list", {}, "listVaultDirectory"],
-    ["open_file", {}, "openVaultFile"],
     ["vault_move", { destination: "ok.md" }, "moveVaultFile"],
     ["vault_copy", { destination: "ok.md" }, "copyVaultFile"],
   ];

@@ -48,18 +48,6 @@ local DownloadParam = {
   schema: { type: 'string', enum: ['1'] },
 };
 
-local ContentLocationHeader = {
-  'Content-Location': {
-    description: 'Vault-relative path of the file that was acted on, e.g. `notes/file.md`. Each path component is percent-encoded on its own -- non-ASCII characters, and reserved characters such as `#`, `?` and `,` that would otherwise be read as a fragment, a query or a header-list separator -- so the value can be pasted straight back into a request URL.',
-    schema: { type: 'string', example: 'notes/file.md' },
-  },
-};
-local WithContentLocation(codes) = {
-  // `headers+:` rather than `headers:`: an operation's own response headers
-  // (`Markdown-Patch-Warnings`, say) must survive this being mixed in.
-  responses+: { [c]+: { headers+: ContentLocationHeader } for c in codes },
-};
-
 // `/vault/{filename}` only reports a Content-Location when the URL had to be
 // resolved -- a path that embeds a `/heading`, `/block` or `/frontmatter`
 // target is ambiguous with a file literally named that, and only the server
@@ -278,51 +266,14 @@ std.manifestYamlDoc(
     ],
     tags: [
       { name: 'Vault Files' },
-      { name: 'Active File' },
       { name: 'Vault Directories' },
       { name: 'Tags' },
       { name: 'Search' },
-      { name: 'Commands' },
       { name: 'Events' },
-      { name: 'Open' },
       { name: 'System' },
       { name: 'MCP' },
     ],
     paths: {
-      '/active/': {
-        get: Get + WithContentLocation(['200']) {
-          tags: ['Active File'],
-          summary: 'Return the content of the active file open in Obsidian.\n',
-          description: (importstr 'lib/descriptions/active-get.md') + '\n' + GetShared,
-        },
-        put: Put + WithContentLocation(['200', '204']) {
-          tags: [
-            'Active File',
-          ],
-          summary: 'Update the content of the active file open in Obsidian.\n',
-          description: PutShared,
-        },
-        post: Post + WithContentLocation(['200', '204']) {
-          tags: [
-            'Active File',
-          ],
-          summary: 'Append content to the active file open in Obsidian.\n',
-          description: (importstr 'lib/descriptions/active-post.md') + '\n' + PostShared,
-        },
-        patch: Patch + WithContentLocation(['200']) {
-          tags: [
-            'Active File',
-          ],
-          summary: 'Partially update content in the currently open note.\n',
-          description: PatchDescription('the currently-open note'),
-        },
-        delete: Delete + WithContentLocation(['204']) {
-          tags: [
-            'Active File',
-          ],
-          summary: 'Deletes the currently-active file in Obsidian.\n',
-        },
-      },
       '/vault/{filename}': {
         get: Get + WithResolvedContentLocation(['200']) + WithConfigDirForbidden {
           tags: [
@@ -520,88 +471,6 @@ std.manifestYamlDoc(
           },
         },
       },
-      '/commands/': {
-        get: {
-          tags: [
-            'Commands',
-          ],
-          summary: 'Get a list of available commands.\n',
-          responses: {
-            '200': {
-              description: 'A list of available commands.',
-              content: {
-                'application/json': {
-                  schema: {
-                    type: 'object',
-                    properties: {
-                      commands: {
-                        type: 'array',
-                        items: {
-                          type: 'object',
-                          properties: {
-                            id: {
-                              type: 'string',
-                            },
-                            name: {
-                              type: 'string',
-                            },
-                          },
-                        },
-                      },
-                    },
-                  },
-                  example: {
-                    commands: [
-                      {
-                        id: 'global-search:open',
-                        name: 'Search: Search in all files',
-                      },
-                      {
-                        id: 'graph:open',
-                        name: 'Graph view: Open graph view',
-                      },
-                    ],
-                  },
-                },
-              },
-            },
-          },
-        },
-      },
-      '/commands/{commandId}/': {
-        post: {
-          tags: [
-            'Commands',
-          ],
-          summary: 'Execute a command.\n',
-          parameters: [
-            {
-              name: 'commandId',
-              'in': 'path',
-              description: 'The id of the command to execute',
-              required: true,
-              schema: {
-                type: 'string',
-              },
-            },
-          ],
-          responses: {
-            '204': {
-              description: 'Success',
-            },
-            '404': {
-              description: 'The command you specified does not exist.',
-              content: {
-                'application/json': {
-                  schema: {
-                    '$ref': '#/components/schemas/Error',
-                  },
-                },
-              },
-            },
-          },
-        },
-      },
       '/search/': {
         post: {
           tags: [
@@ -786,7 +655,7 @@ std.manifestYamlDoc(
             name: 'emitter',
             'in': 'path',
             required: true,
-            description: "The Obsidian object whose event to follow (`vault`, `metadataCache`, `workspace`), or the plugin id of an extension that registered events.",
+            description: "The Obsidian object whose event to follow (`vault`, `metadataCache`), or the plugin id of an extension that registered events.",
             schema: { type: 'string' },
           },
           {
@@ -925,41 +794,6 @@ std.manifestYamlDoc(
             '503': {
               description: 'Too many streams are open.',
               content: { 'application/json': { schema: { '$ref': '#/components/schemas/Error' } } },
-            },
-          },
-        },
-      },
-      '/open/{filename}': {
-        post: {
-          tags: [
-            'Open',
-          ],
-          summary: 'Open the specified document in the Obsidian user interface.\n',
-          description: 'Note: Obsidian will create a new document at the path you have\nspecified if such a document did not already exist.\n',
-          parameters: [
-            {
-              name: 'filename',
-              'in': 'path',
-              description: 'Path to the file to return (relative to your vault root).\n',
-              required: true,
-              schema: {
-                type: 'string',
-                format: 'path',
-              },
-            },
-            {
-              name: 'newLeaf',
-              'in': 'query',
-              description: 'Open this as a new leaf?',
-              required: false,
-              schema: {
-                type: 'boolean',
-              },
-            },
-          ],
-          responses: {
-            '200': {
-              description: 'Success',
             },
           },
         },

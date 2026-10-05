@@ -49,11 +49,8 @@ Access your vault through the **REST API** or the **built-in [MCP server](https:
 - **Read, create, update, or delete notes** — full CRUD on any file in your vault, including binary files
 - **Surgically patch specific sections** — target a heading, block reference, or frontmatter key and append, prepend, replace, delete, or move just that section without touching the rest of the file
 - **Search your vault** — simple full-text search or structured [JsonLogic](https://jsonlogic.com/) queries against note metadata (frontmatter, tags, path, content)
-- **Follow vault events** — subscribe to Obsidian events (a note created, its frontmatter changed, a file opened) as a filtered Server-Sent Events stream
-- **Access the active file** — read or write whatever note is currently open in Obsidian
-- **List and execute commands** — trigger any Obsidian command as if you'd used the command palette
+- **Follow vault events** — subscribe to Obsidian events (a note created, its frontmatter changed, a note renamed) as a filtered Server-Sent Events stream
 - **Query tags** — list all tags across your vault with usage counts
-- **Open files in Obsidian** — tell Obsidian to open a specific note in its UI
 - **Extend the API** — other plugins can register their own routes via the [API extension interface](https://github.com/coddingtonbear/obsidian-local-rest-api/wiki/Adding-your-own-API-Routes-via-an-Extension)
 
 All requests are served over HTTPS with a locally generated certificate and gated behind API key authentication.
@@ -170,13 +167,9 @@ Any MCP client that supports the Streamable HTTP transport can connect to `https
 | Endpoint | Methods | Description |
 |---|---|---|
 | `/vault/{path}` | GET PUT PATCH POST DELETE | Read, write, or delete any file in your vault |
-| `/active/` | GET PUT PATCH POST DELETE | Operate on the currently open file |
 | `/search/simple/` | POST | Full-text search across all notes |
 | `/search/` | POST | Structured search via JsonLogic |
-| `/commands/` | GET | List available Obsidian commands |
-| `/commands/{commandId}/` | POST | Execute a command |
 | `/tags/` | GET | List all tags with usage counts |
-| `/open/{path}` | POST | Open a file in the Obsidian UI |
 | `/` | GET | Server status and authentication check |
 | `/mcp/` | GET POST | MCP (Model Context Protocol) server — connect AI agents directly to your vault |
 
@@ -194,7 +187,7 @@ If you deliberately manage your Obsidian configuration through the API, turn on 
 
 ### Browser clients and response headers
 
-Several endpoints answer in a response header rather than in the body: `Content-Location` tells you which file a targeted or `/active/` request actually resolved to, `Markdown-Patch-Warnings` reports what a `PATCH` had to work around, `Deprecation` warns that a format is sunsetting, and `Mcp-Session-Id` carries the session for a sessionful MCP connection.
+Several endpoints answer in a response header rather than in the body: `Content-Location` tells you which file a targeted request actually resolved to, `Markdown-Patch-Warnings` reports what a `PATCH` had to work around, `Deprecation` warns that a format is sunsetting, and `Mcp-Session-Id` carries the session for a sessionful MCP connection.
 
 Browsers hide response headers from JavaScript unless the server opts them in, so the API sends `Access-Control-Expose-Headers: *` and all of them are readable with `response.headers.get(...)`. Safari honours the wildcard from 15.4 onward; older browsers see only the [CORS-safelisted headers](https://developer.mozilla.org/en-US/docs/Glossary/CORS-safelisted_response_header). Requests made with `credentials: "include"` are not supported — the API authenticates with a bearer token and sends `Access-Control-Allow-Origin: *`, which browsers reject for credentialed requests.
 
@@ -329,16 +322,15 @@ The events are Obsidian's own, and only these can be streamed:
 |---|---|
 | `vault` | `create`, `modify`, `delete`, `rename` |
 | `metadataCache` | `changed`, `deleted`, `resolve`, `resolved` |
-| `workspace` | `file-open`, `active-leaf-change`, `layout-change` |
 
-Each event is serialized by code written for it. That code decides exactly what is sent: the path, the file's NoteJson (the same shape `/search/` evaluates), and a few event-specific fields such as `oldPath` on a rename. Note content is sent only when the filter reads `file.content`. Events whose payloads are keystrokes, clipboard data, or UI objects (`editor-change`, `quick-preview`, `editor-paste`, the menu events, …) can't be streamed. To react to frontmatter changes, use `metadataCache` `changed`: `vault` `modify` fires before Obsidian has re-read the file's metadata.
+Each event is serialized by code written for it. That code decides exactly what is sent: the path, the file's NoteJson (the same shape `/search/` evaluates), and a few event-specific fields such as `oldPath` on a rename. Note content is sent only when the filter reads `file.content`. There is no `workspace` emitter, because no Obsidian window is open to produce editor, layout, or file-open events. To react to frontmatter changes, use `metadataCache` `changed`: `vault` `modify` fires before Obsidian has re-read the file's metadata.
 
 Each message's `id` is `<epoch>-<counter>`. A new epoch, or a gap in the counter, means events were missed. Nothing is replayed. A stream URL expires after the signed-URL lifetime (or `?ttl=<seconds>`), but a stream opened before then stays open. At most 16 streams can be open at once. Anyone holding a signed stream URL sees the paths and metadata of every event its filter matches, so treat it like the notes themselves. See the [API docs](https://coddingtonbear.github.io/obsidian-local-rest-api/) for the full message format.
 
 ## MCP (Model Context Protocol)
 
 > [!NOTE]
-> Several third-party MCP servers for Obsidian exist, but they are no longer necessary — this plugin ships a built-in MCP server that runs inside Obsidian and has direct access to your vault's live metadata, active file, and command palette. If you are currently using a third-party server, switching to this one is likely to give you better results.
+> Several third-party MCP servers for Obsidian exist, but they are no longer necessary — this plugin ships a built-in MCP server that runs inside Obsidian and has direct access to your vault's live metadata. If you are currently using a third-party server, switching to this one is likely to give you better results.
 
 The plugin includes a built-in MCP server at `/mcp/` so AI agents and MCP-compatible clients can interact with your vault without hand-crafting HTTP requests.
 
@@ -385,13 +377,9 @@ The exact config syntax varies by client; see the [Quick start](#mcp-clients) ex
 | `vault_move` | Move (rename) a vault file to a new path |
 | `vault_copy` | Copy a vault file to a new path |
 | `vault_get_document_map` | List the headings, block references, and frontmatter fields in a file |
-| `active_file_get_path` | Return the vault path of the file currently open in Obsidian |
 | `search_query` | Search using a [JsonLogic](https://jsonlogic.com/) query against note metadata |
 | `search_simple` | Full-text search using Obsidian's built-in search |
 | `tag_list` | List all tags across the vault with usage counts |
-| `command_list` | List all registered Obsidian commands |
-| `command_execute` | Execute an Obsidian command by ID |
-| `open_file` | Open a file in the Obsidian UI |
 
 ### Binary files and attachments
 
@@ -438,7 +426,7 @@ Two practical notes: whether a chat client renders a linked image inline is up t
 
 Other plugins can register their own authenticated routes, public routes, MCP tools, and [streamable events](#extension-events) against this plugin's server. See [Adding your own API Routes via an Extension](https://github.com/coddingtonbear/obsidian-local-rest-api/wiki/Adding-your-own-API-Routes-via-an-Extension) for a walkthrough.
 
-Public routes (`addPublicRoute`) are answered before the API key is checked, so they can't sit under a prefix the plugin serves its own routes from: `/vault/`, `/active/`, `/search/`, `/commands/`, `/events/`, `/mcp/`, `/open/`, and `/tags/`, in any letter case, along with `/`, the OpenAPI documents, and the certificate. A path whose first segment is a pattern (`/:name/`, `/*`) is refused for the same reason. `addPublicRoute` throws when you register one of these, so start public routes with a literal segment of your own, such as your plugin's id. Authenticated routes (`addRoute`) and vault sub-resources are unaffected.
+Public routes (`addPublicRoute`) are answered before the API key is checked, so they can't sit under a prefix the plugin serves its own routes from: `/vault/`, `/search/`, `/events/`, `/mcp/`, and `/tags/`, in any letter case, along with `/`, the OpenAPI documents, and the certificate. A path whose first segment is a pattern (`/:name/`, `/*`) is refused for the same reason. `addPublicRoute` throws when you register one of these, so start public routes with a literal segment of your own, such as your plugin's id. Authenticated routes (`addRoute`) and vault sub-resources are unaffected.
 
 ### Typed extension API
 
@@ -533,7 +521,7 @@ comments.get("/", (req, res) => {
 comments.get("/:id", (req, res) => { /* ... */ });
 ```
 
-`GET /vault/Notes/draft.md/comments/a1f3` then reaches that router as `GET /a1f3`, with the note attached as `req.vaultFile`; `/active/comments/a1f3` does the same for the active file. The plugin resolves the note before your router runs, so it only ever sees notes that exist, and a request your router doesn't answer continues to the plugin's own handlers. Requests need the API key; signed URLs never reach a sub-resource.
+`GET /vault/Notes/draft.md/comments/a1f3` then reaches that router as `GET /a1f3`, with the note attached as `req.vaultFile`. The plugin resolves the note before your router runs, so it only ever sees notes that exist, and a request your router doesn't answer continues to the plugin's own handlers. Requests need the API key; signed URLs never reach a sub-resource.
 
 A `%2F` in the URL is a literal slash inside one segment, which Express's own route matching can't tell apart from a separator. `req.vaultSubresourceSegments` holds the segments after the name, each decoded on its own, for when that matters.
 

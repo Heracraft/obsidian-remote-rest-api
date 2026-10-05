@@ -119,12 +119,6 @@ declare module "obsidian" {
       activeTab: SettingTab;
       open(): void;
     };
-    commands: {
-      executeCommandById(id: string): void;
-      commands: {
-        [key: string]: Command;
-      };
-    };
     plugins: {
       plugins: {
         [key: string]: PluginManifest;

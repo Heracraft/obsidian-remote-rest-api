@@ -185,10 +185,11 @@ describe("event streams", () => {
   });
 
   test("an event that is not streamable is refused with the list of those that are", async () => {
-    const res = await authedFetch("/events/workspace/quick-preview/", { method: "POST" });
+    const res = await authedFetch("/events/workspace/file-open/", { method: "POST" });
     expect(res.status).toBe(404);
     const body = (await res.json()) as { supportedEvents: Record<string, string[]> };
     expect(body.supportedEvents.vault).toEqual(["create", "modify", "delete", "rename"]);
+    expect(body.supportedEvents.workspace).toBeUndefined();
   });
 
   test("a stream URL for one subscription does not open another", async () => {

@@ -11,12 +11,9 @@ export const BUILT_IN_ROUTES = ["/", "/openapi.yaml", "/openapi.json", `/${CERT_
  */
 export const BUILT_IN_ROUTE_PREFIXES = [
   "vault",
-  "active",
   "search",
-  "commands",
   "events",
   "mcp",
-  "open",
   "tags",
 ];
 

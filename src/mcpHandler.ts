@@ -89,7 +89,7 @@ interface ToolSpec {
   callback: (args: unknown) => Promise<CallToolResult>;
 }
 
-// Shared annotation set for tools that only ever read vault/workspace state.
+// Shared annotation set for tools that only ever read vault state.
 const READ_ONLY_ANNOTATIONS: ToolAnnotations = {
   readOnlyHint: true,
   destructiveHint: false,
@@ -1029,12 +1029,6 @@ export class McpHandler {
     };
   }
 
-  private getActiveFile(): TFile {
-    const file = this.ops.app.workspace.getActiveFile();
-    if (!file) throw new Error("No active file");
-    return file;
-  }
-
   // The one read behind every `vault_read`: raw bytes, decoded strictly. See
   // `decodeUtf8Strict` above for why the read is a binary one.
   private async readTextStrict(path: string): Promise<string> {
@@ -1116,7 +1110,7 @@ export class McpHandler {
     return this.tool(
       "events_get_listener_url",
       dedent`
-        Subscribe to one Obsidian event and return a signed URL that streams matching occurrences as Server-Sent Events (text/event-stream). The URL needs no API key, so a process on your host can follow it -- \`curl -N <url>\`, or an EventSource in a browser -- and act on each event as it arrives. Each message's \`event:\` field is the event name, its \`id:\` is \`<epoch>-<counter>\` (a new epoch or a gap in the counter means events were missed; nothing is replayed), and its data is a JSON object. For the built-in emitters that object is {emitter, event, path, file}, where file is the NoteJson search_query evaluates (without content unless your filter reads file.content), plus oldPath on vault rename, isFolder on vault events, previous ({frontmatter, tags}) on metadataCache deleted, and viewType on workspace active-leaf-change. An extension's events carry whatever payload that extension defines, which need not have path or file.
+        Subscribe to one Obsidian event and return a signed URL that streams matching occurrences as Server-Sent Events (text/event-stream). The URL needs no API key, so a process on your host can follow it -- \`curl -N <url>\`, or an EventSource in a browser -- and act on each event as it arrives. Each message's \`event:\` field is the event name, its \`id:\` is \`<epoch>-<counter>\` (a new epoch or a gap in the counter means events were missed; nothing is replayed), and its data is a JSON object. For the built-in emitters that object is {emitter, event, path, file}, where file is the NoteJson search_query evaluates (without content unless your filter reads file.content), plus oldPath on vault rename, isFolder on vault events, and previous ({frontmatter, tags}) on metadataCache deleted. An extension's events carry whatever payload that extension defines, which need not have path or file.
 
         Streamable events -- ${supported}. Plugins extending this server can add their own, with their plugin id as the emitter and a payload they define; ask for an emitter or event that does not exist and the error lists everything currently available. For "a note's frontmatter changed", prefer metadataCache changed over vault modify: vault modify fires before Obsidian has re-read the file's metadata.
 
@@ -1592,17 +1586,6 @@ export class McpHandler {
     );
 
     this.tool(
-      "active_file_get_path",
-      dedent`Return the vault-relative path of the file currently open in Obsidian. Use this path with vault_read, vault_write, vault_append, vault_patch, vault_get_document_map, or vault_delete to operate on the active file. Throws if no file is active.`,
-      {},
-      READ_ONLY_ANNOTATIONS,
-      async () => {
-        const file = this.getActiveFile();
-        return this.text({ path: file.path });
-      },
-    );
-
-    this.tool(
       "search_query",
       dedent`
         Search vault files using a JsonLogic query evaluated against each note's metadata.
@@ -1685,41 +1668,5 @@ export class McpHandler {
       },
     );
 
-    this.tool(
-      "command_list",
-      dedent`Return all registered Obsidian commands. Each entry has an 'id' and a human-readable 'name'. Pass the 'id' to command_execute to run a command.`,
-      {},
-      READ_ONLY_ANNOTATIONS,
-      async () => {
-        return this.text({ commands: this.ops.listCommands() });
-      },
-    );
-
-    this.tool(
-      "command_execute",
-      dedent`Execute an Obsidian command by its ID. Use command_list to discover available command IDs. Throws if the command ID does not exist.`,
-      { commandId: z.string().describe("The command ID to execute (e.g. 'editor:toggle-bold')") },
-      // Command effects are arbitrary and unpredictable (any registered Obsidian command), so
-      // this is annotated conservatively as destructive and non-idempotent rather than assumed safe.
-      { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false },
-      async ({ commandId }: { commandId: string }) => {
-        this.ops.executeCommand(commandId);
-        return this.text({ message: "OK" });
-      },
-    );
-
-    this.tool(
-      "open_file",
-      dedent`Open a file in the Obsidian UI. If the file does not exist, Obsidian will create a new document at that path. Set newLeaf to true to open in a new pane rather than the current one.`,
-      {
-        path: z.string().describe(VAULT_PATH_DESCRIPTION),
-        newLeaf: z.boolean().optional().describe("Open in a new leaf/pane (default: false)"),
-      },
-      { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
-      async ({ path, newLeaf }: { path: string; newLeaf?: boolean }) => {
-        this.ops.openVaultFile(this.vaultPath(path), newLeaf);
-        return this.text({ message: "OK" });
-      },
-    );
   }
 }

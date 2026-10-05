@@ -1,10 +1,6 @@
 local T = import 'targeting.params.jsonnet';
 
 {
-  tags: [
-    'Active File',
-  ],
-  summary: 'Update the content of the active file open in Obsidian.\n',
   parameters: [
     T.markdownPatchVersion,
     T.rejectIfContentPreexists,

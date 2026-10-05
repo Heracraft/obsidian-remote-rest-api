@@ -2,7 +2,6 @@ import {
   getAllTags,
   App,
   CachedMetadata,
-  Command,
   Component,
   MarkdownRenderer,
   prepareSimpleSearch,
@@ -33,7 +32,6 @@ import jsonLogic from "json-logic-js";
 import WildcardRegexp from "glob-to-regexp";
 
 export class FileNotFoundError extends Error {}
-export class CommandNotFoundError extends Error {}
 export class DestinationAlreadyExistsError extends Error {}
 
 import {
@@ -1024,36 +1022,4 @@ export class VaultOperations {
     return tags;
   }
 
-  listCommands(): Command[] {
-    const commands: Command[] = [];
-    for (const commandName in this.app.commands.commands) {
-      commands.push({
-        id: commandName,
-        name: this.app.commands.commands[commandName].name,
-      });
-    }
-    return commands;
-  }
-
-  executeCommand(commandId: string): void {
-    const cmd = this.app.commands.commands[commandId];
-    if (!cmd) {
-      throw new CommandNotFoundError(`Command not found: ${commandId}`);
-    }
-    this.app.commands.executeCommandById(commandId);
-  }
-
-  openVaultFile(filePath: string, newLeaf = false): void {
-    this.assertContained(filePath);
-    // Intentionally fire-and-forget: the caller (POST /open/) has already
-    // responded by the time this settles, since a client asking Obsidian to
-    // focus a file has no reason to wait on that UI action finishing. The
-    // rejection still needs a home, though -- an un-awaited promise with no
-    // .catch is an unhandled rejection the moment openLinkText throws (e.g.
-    // an invalid path), and while that's non-fatal in Obsidian's renderer
-    // process, it's still an unexplained error with nothing to explain it.
-    this.app.workspace.openLinkText(filePath, "/", newLeaf).catch((error) => {
-      console.error(`[REST API] Failed to open "${filePath}":`, error);
-    });
-  }
 }
