@@ -778,7 +778,7 @@ describe("vault_read_binary tool", () => {
 });
 
 // Signed URLs are on by default, so this suite runs by default and opts *out*, unlike
-// the OBSIDIAN_ACTIVE_FILE / OBSIDIAN_TEST_OPEN_FILE suites which opt in. Gating at
+// the OBSIDIAN_ACTIVE_FILE suite, which opts in. Gating at
 // registration time is what lets Jest report a skip as a skip.
 const signedUrlSuite = process.env.OBSIDIAN_SIGNED_URLS === "0" ? describe.skip : describe;
 
@@ -1309,27 +1309,6 @@ describe("tag_list tool", () => {
       expect(typeof tag.name).toBe("string");
       expect(typeof tag.count).toBe("number");
     }
-  });
-});
-
-// ---------------------------------------------------------------------------
-// open_file
-// ---------------------------------------------------------------------------
-
-// Skipped by default: this is the one test that pulls Obsidian to the foreground and
-// steals focus, which is disruptive enough to be worth opting into rather than paying
-// for on every run — keystrokes intended elsewhere can land in whatever note it opened.
-// Set OBSIDIAN_TEST_OPEN_FILE=1 to run it.
-const openFileTest =
-  process.env.OBSIDIAN_TEST_OPEN_FILE === "1" ? test : test.skip;
-
-describe("open_file tool", () => {
-  openFileTest("opens fixture file and returns OK", async () => {
-    const result = await client.callTool({
-      name: "open_file",
-      arguments: { path: TEST_PATH },
-    });
-    expect(jsonOf<any>(result).message).toBe("OK");
   });
 });
 

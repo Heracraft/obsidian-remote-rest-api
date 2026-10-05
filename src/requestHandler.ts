@@ -11,7 +11,6 @@ import http from "http";
 import cors, { CorsOptions } from "cors";
 import mime from "mime-types";
 import responseTime from "response-time";
-import queryString from "query-string";
 import {
   FrontmatterParseError,
   getDocumentMap,
@@ -2464,18 +2463,6 @@ export default class RequestHandler {
     }
   }
 
-  async openPost(req: express.Request, res: express.Response): Promise<void> {
-    const filePath = decodeURIComponent(
-      req.path.slice(req.path.indexOf("/", 1) + 1),
-    );
-    const query = queryString.parseUrl(req.originalUrl, {
-      parseBooleans: true,
-    }).query;
-    const newLeaf = Boolean(query.newLeaf);
-    this.operations.openVaultFile(filePath, newLeaf);
-    res.json();
-  }
-
   async certificateGet(
     _req: express.Request,
     res: express.Response,
@@ -2851,8 +2838,6 @@ export default class RequestHandler {
       .route("/events/:emitter/:event/:id/")
       .get(this.handle((rq, rs) => this.eventsStreamGet(rq, rs)));
     this.api.route("/search/simple/").post(this.handle((rq, rs) => this.searchSimplePost(rq, rs)));
-
-    this.api.route("/open/*").post(this.handle((rq, rs) => this.openPost(rq, rs)));
 
     this.api.get(`/${CERT_NAME}`, this.handle((rq, rs) => this.certificateGet(rq, rs)));
     this.api.get("/openapi.yaml", this.handle((rq, rs) => this.openapiYamlGet(rq, rs)));

@@ -122,7 +122,6 @@ function makeMockOps() {
       .fn()
       .mockResolvedValue([{ filename: "a.md", score: 1, matches: [] }]),
     getAllTags: jest.fn().mockReturnValue([{ name: "todo", count: 3 }]),
-    openVaultFile: jest.fn(),
     moveVaultFile: jest.fn().mockResolvedValue(""),
     copyVaultFile: jest.fn().mockResolvedValue(""),
   };
@@ -269,8 +268,8 @@ describe("McpHandler", () => {
 
   // ---- tool registration --------------------------------------------------
 
-  test("registers all 17 tools (the two signed-URL tools are there because that setting is on by default)", () => {
-    expect(registerTool).toHaveBeenCalledTimes(17);
+  test("registers all 16 tools (the two signed-URL tools are there because that setting is on by default)", () => {
+    expect(registerTool).toHaveBeenCalledTimes(16);
     const names = registerTool.mock.calls.map((c: unknown[]) => c[0]);
     expect(names).toEqual(
       expect.arrayContaining([
@@ -290,7 +289,6 @@ describe("McpHandler", () => {
         "search_query",
         "search_simple",
         "tag_list",
-        "open_file",
       ]),
     );
   });
@@ -759,12 +757,12 @@ describe("McpHandler", () => {
       build(UNSIGNED);
       expect(registeredNames()).not.toContain("vault_get_download_url");
       expect(registeredNames()).not.toContain("vault_get_upload_url");
-      expect(registerTool).toHaveBeenCalledTimes(15);
+      expect(registerTool).toHaveBeenCalledTimes(14);
       build();
       expect(registeredNames()).toEqual(
         expect.arrayContaining(["vault_get_download_url", "vault_get_upload_url"]),
       );
-      expect(registerTool).toHaveBeenCalledTimes(17);
+      expect(registerTool).toHaveBeenCalledTimes(16);
     });
 
     test("setSignedUrlsEnabled adds and removes the tools without rebuilding the handler", () => {
@@ -1973,13 +1971,6 @@ describe("McpHandler", () => {
         expect(ops.deleteVaultFile).not.toHaveBeenCalled();
       });
 
-      test("open_file refuses a config path", async () => {
-        await expect(
-          getToolCallback("open_file")({ path: ".obsidian/app.json" }),
-        ).rejects.toThrow(/configuration directory/i);
-        expect(ops.openVaultFile).not.toHaveBeenCalled();
-      });
-
       test("a sibling directory that merely shares the prefix is allowed", async () => {
         await getToolCallback("vault_write")({
           path: ".obsidian-backup/note.md",
@@ -2097,15 +2088,6 @@ describe("McpHandler", () => {
     expect(parseText(result).tags).toEqual([{ name: "todo", count: 3 }]);
   });
 
-  // ---- open_file ----------------------------------------------------------
-
-  test("open_file calls openVaultFile and returns OK", async () => {
-    const cb = getToolCallback("open_file");
-    const result = await cb({ path: "notes/foo.md", newLeaf: true });
-    expect(ops.openVaultFile).toHaveBeenCalledWith("notes/foo.md", true);
-    expect(parseText(result).message).toBe("OK");
-  });
-
   // ---- handleRequest ------------------------------------------------------
 
   describe("handleRequest — sessionless (2026-07-28) path", () => {
@@ -2150,8 +2132,8 @@ describe("McpHandler", () => {
 
       const first = await send(1);
       const second = await send(2);
-      expect(first.body.result.tools).toHaveLength(17);
-      expect(second.body.result.tools).toHaveLength(17);
+      expect(first.body.result.tools).toHaveLength(16);
+      expect(second.body.result.tools).toHaveLength(16);
       expect(first.headers["mcp-session-id"]).toBeUndefined();
       expect(second.headers["mcp-session-id"]).toBeUndefined();
     });
@@ -2291,7 +2273,7 @@ describe("McpHandler", () => {
         .send(sessionlessRequest(1, "tools/list"))
         .expect(200);
 
-      expect(res.body.result.tools).toHaveLength(17);
+      expect(res.body.result.tools).toHaveLength(16);
       expect(res.headers["mcp-session-id"]).toBeUndefined();
     });
 
@@ -2419,7 +2401,7 @@ describe("McpHandler", () => {
         .expect(200);
 
       const message = sseResult(res.text);
-      expect(message.result.tools).toHaveLength(17);
+      expect(message.result.tools).toHaveLength(16);
       const vaultList = (message.result.tools as { name: string; inputSchema: unknown }[]).find(
         (t) => t.name === "vault_list",
       );
@@ -3170,7 +3152,6 @@ describe("MCP vault path containment", () => {
     ["vault_delete", {}, "deleteVaultFile"],
     ["vault_get_document_map", {}, "getDocumentMapV2Object"],
     ["vault_list", {}, "listVaultDirectory"],
-    ["open_file", {}, "openVaultFile"],
     ["vault_move", { destination: "ok.md" }, "moveVaultFile"],
     ["vault_copy", { destination: "ok.md" }, "copyVaultFile"],
   ];

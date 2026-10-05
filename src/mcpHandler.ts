@@ -1685,18 +1685,5 @@ export class McpHandler {
       },
     );
 
-    this.tool(
-      "open_file",
-      dedent`Open a file in the Obsidian UI. If the file does not exist, Obsidian will create a new document at that path. Set newLeaf to true to open in a new pane rather than the current one.`,
-      {
-        path: z.string().describe(VAULT_PATH_DESCRIPTION),
-        newLeaf: z.boolean().optional().describe("Open in a new leaf/pane (default: false)"),
-      },
-      { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
-      async ({ path, newLeaf }: { path: string; newLeaf?: boolean }) => {
-        this.ops.openVaultFile(this.vaultPath(path), newLeaf);
-        return this.text({ message: "OK" });
-      },
-    );
   }
 }

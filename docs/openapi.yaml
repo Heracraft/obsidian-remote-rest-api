@@ -1651,7 +1651,6 @@ paths:
         | `search_query` | Search using a JsonLogic query evaluated against each note's metadata |
         | `search_simple` | Full-text search using Obsidian's built-in search |
         | `tag_list` | List all tags across the vault with usage counts |
-        | `open_file` | Open a file in the Obsidian UI |
         
         ### Binary files
         
@@ -1854,33 +1853,6 @@ paths:
         Returns the certificate to trust in order to connect to this API.
       tags:
         - "System"
-  "/open/{filename}":
-    post:
-      description: |
-        Note: Obsidian will create a new document at the path you have
-        specified if such a document did not already exist.
-      parameters:
-        - description: |
-            Path to the file to return (relative to your vault root).
-          in: "path"
-          name: "filename"
-          required: true
-          schema:
-            format: "path"
-            type: "string"
-        - description: "Open this as a new leaf?"
-          in: "query"
-          name: "newLeaf"
-          required: false
-          schema:
-            type: "boolean"
-      responses:
-        "200":
-          description: "Success"
-      summary: |
-        Open the specified document in the Obsidian user interface.
-      tags:
-        - "Open"
   /openapi.json:
     get:
       description: |
@@ -3540,7 +3512,6 @@ tags:
   - name: "Tags"
   - name: "Search"
   - name: "Events"
-  - name: "Open"
   - name: "System"
   - name: "MCP"
 x-topics:

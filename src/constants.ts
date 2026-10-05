@@ -15,7 +15,6 @@ export const BUILT_IN_ROUTE_PREFIXES = [
   "search",
   "events",
   "mcp",
-  "open",
   "tags",
 ];
 

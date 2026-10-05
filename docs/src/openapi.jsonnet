@@ -283,7 +283,6 @@ std.manifestYamlDoc(
       { name: 'Tags' },
       { name: 'Search' },
       { name: 'Events' },
-      { name: 'Open' },
       { name: 'System' },
       { name: 'MCP' },
     ],
@@ -842,41 +841,6 @@ std.manifestYamlDoc(
             '503': {
               description: 'Too many streams are open.',
               content: { 'application/json': { schema: { '$ref': '#/components/schemas/Error' } } },
-            },
-          },
-        },
-      },
-      '/open/{filename}': {
-        post: {
-          tags: [
-            'Open',
-          ],
-          summary: 'Open the specified document in the Obsidian user interface.\n',
-          description: 'Note: Obsidian will create a new document at the path you have\nspecified if such a document did not already exist.\n',
-          parameters: [
-            {
-              name: 'filename',
-              'in': 'path',
-              description: 'Path to the file to return (relative to your vault root).\n',
-              required: true,
-              schema: {
-                type: 'string',
-                format: 'path',
-              },
-            },
-            {
-              name: 'newLeaf',
-              'in': 'query',
-              description: 'Open this as a new leaf?',
-              required: false,
-              schema: {
-                type: 'boolean',
-              },
-            },
-          ],
-          responses: {
-            '200': {
-              description: 'Success',
             },
           },
         },

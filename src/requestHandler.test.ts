@@ -4949,7 +4949,6 @@ describe("requestHandler", () => {
       "/search/simple/",
       "/events/",
       "/mcp",
-      "/open/*",
       "/tags/",
       "/VAULT/*",
     ])("refuses %s at registration", (path) => {
