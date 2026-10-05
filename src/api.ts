@@ -16,7 +16,7 @@ import type {
 import type { VaultSubresourceRegistry } from "./vaultSubresources";
 
 // The public surface — the interface and ApiVersionUnsupportedError — lives in
-// ./publicApi, which is what the generated publicApi.d.ts is emitted from. Re-exported
+// ./publicApi, which upstream publishes as the plugin's typings. Re-exported
 // here so internal callers keep importing them from the module that implements them.
 export { ApiVersionUnsupportedError } from "./publicApi";
 export type { LocalRestApiPublicApi, StreamableEventDefinition } from "./publicApi";

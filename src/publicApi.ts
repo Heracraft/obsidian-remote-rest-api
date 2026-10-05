@@ -319,8 +319,7 @@ export interface LocalRestApiPublicApi {
    *
    * Throws if `path` collides with a path reserved by the host plugin: `/`, the OpenAPI
    * documents, the certificate, or anything under a prefix the host serves routes under
-   * (`/vault/`, `/active/`, `/search/`, `/commands/`, `/events/`, `/mcp/`, `/open/`,
-   * `/tags/`, in any letter case). Also throws if the first path segment is a pattern
+   * (`/vault/`, `/search/`, `/events/`, `/mcp/`, `/tags/`, in any letter case). Also throws if the first path segment is a pattern
    * (a `:parameter`, `*`, group, or any regular-expression syntax), or if the path has a
    * `|` outside a group, since either could match one of those prefixes. Start public
    * routes with a literal segment of your own, such as your plugin's id.
@@ -380,7 +379,7 @@ export interface LocalRestApiPublicApi {
 
   /**
    * Adds a sub-resource under every note, reachable with the API key at
-   * `/vault/<note path>/<name>/...` and `/active/<name>/...`, and returns the router
+   * `/vault/<note path>/<name>/...`, and returns the router
    * that serves it.
    *
    * Paths on the router are relative to the sub-resource: a `GET /vault/Notes/a.md/comments/a1f3`

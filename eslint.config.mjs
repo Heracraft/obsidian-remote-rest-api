@@ -1,22 +1,39 @@
 import tseslint from "typescript-eslint";
 import { defineConfig } from "eslint/config";
-import obsidianmd from "eslint-plugin-obsidianmd";
 import globals from "globals";
+
+// The Obsidian preset reads manifest.json when it loads and logs an error
+// when there is none. This project is no longer a plugin and has none, so
+// that one message is held back while the preset loads.
+const quietLoad = async (load) => {
+  const original = console.error;
+  console.error = (message, ...rest) => {
+    if (typeof message === "string" && message.startsWith("Failed to load JSON file")) return;
+    original(message, ...rest);
+  };
+  try {
+    return await load();
+  } finally {
+    console.error = original;
+  }
+};
+const { default: obsidianmd } = await quietLoad(() => import("eslint-plugin-obsidianmd"));
 
 export default defineConfig([
   {
-    // main.js, publicApi.js and publicApi.d.ts are build output, not source.
-    ignores: [
-      "dist/",
-      "docs/",
-      "node_modules/",
-      "main.js",
-      "publicApi.js",
-      "publicApi.d.ts",
-    ],
+    // dist/ is build output, not source.
+    ignores: ["dist/", "docs/", "node_modules/"],
   },
 
   ...obsidianmd.configs.recommended,
+
+  // This is a Node server. The Obsidian preset only allows Node built-ins
+  // when manifest.json declares a desktop-only plugin, and there is no
+  // manifest any more.
+  {
+    files: ["src/**/*.ts"],
+    rules: { "import/no-nodejs-modules": "off" },
+  },
 
   // Main plugin source
   {
