@@ -1,13 +1,13 @@
 # One folder of notes, served on one address of a private network you control.
 # Settings come from a .env file next to this one (see .env.example):
 #
-#   API_KEY    the bearer token; generate one with `openssl rand -hex 32`
-#   BIND_IP    this machine's Tailscale (100.64.0.0/10) or WireGuard address
-#   VAULT_DIR  the folder to serve
+#   API_KEY            the bearer token; generate one with `openssl rand -hex 32`
+#   BIND_IP            this machine's Tailscale (100.64.0.0/10) or WireGuard address
+#   VAULT_DIR          the folder to serve
+#   SUBJECT_ALT_NAMES  optional: names for the HTTPS certificate besides BIND_IP
 #
 # BIND_IP must never be a public address. A bare "27124:27124" publishes on
-# every interface of the host, public ones included. See "Exposure" in
-# README.md before putting this anywhere else.
+# every interface of the host, public ones included.
 
 services:
   notes-api:
@@ -21,5 +21,5 @@ services:
       - "${BIND_IP:?Set BIND_IP to this machine's Tailscale or WireGuard address}:27124:27124"
     environment:
       API_KEY: "${API_KEY:?Set API_KEY, for example to the output of openssl rand -hex 32}"
-      # Names and addresses clients use, for the HTTPS certificate.
-      SUBJECT_ALT_NAMES: "${SUBJECT_ALT_NAMES:-}"
+      # The certificate covers the address clients dial; add host names here.
+      SUBJECT_ALT_NAMES: "${BIND_IP},${SUBJECT_ALT_NAMES:-}"
