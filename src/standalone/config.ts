@@ -11,6 +11,7 @@ import fs from "fs";
 import path from "path";
 import { DEFAULT_SETTINGS } from "../constants";
 import type { CryptoSettings, LocalRestApiSettings } from "../types";
+import { allowedNetworks, NetworkPolicyError, type Cidr } from "./network";
 import type { NewLinkFormat, TrashOption } from "./obsidian/fileManager";
 
 export const DATA_DIR_NAME = "obsidian-remote-rest-api";
@@ -26,6 +27,11 @@ export interface StandaloneConfig {
   rescanIntervalSeconds: number;
   tlsCertFile?: string;
   tlsKeyFile?: string;
+  /** The networks clients may connect from; see ./network. */
+  allowedNetworks: Cidr[];
+  /** Whether a request a proxy forwards for a public client is served. Only
+   *  for a proxy that authenticates every request itself first. */
+  allowPublicClientsThroughAuthenticatingProxy: boolean;
   /** Settings for the request handler, without the generated parts. */
   settings: LocalRestApiSettings;
   /** Whether API_KEY came from the environment. */
@@ -90,6 +96,14 @@ export function loadConfig(env: Env = process.env): StandaloneConfig {
     throw new ConfigError("Set TLS_CERT_FILE and TLS_KEY_FILE together, or neither.");
   }
 
+  let networks: Cidr[];
+  try {
+    networks = allowedNetworks(env.ALLOWED_CLIENT_NETWORKS);
+  } catch (error) {
+    if (error instanceof NetworkPolicyError) throw new ConfigError(error.message);
+    throw error;
+  }
+
   return {
     vaultPath,
     configDir,
@@ -101,6 +115,12 @@ export function loadConfig(env: Env = process.env): StandaloneConfig {
     rescanIntervalSeconds: integer(env, "RESCAN_INTERVAL_SECONDS", 60),
     tlsCertFile,
     tlsKeyFile,
+    allowedNetworks: networks,
+    allowPublicClientsThroughAuthenticatingProxy: boolean(
+      env,
+      "ALLOW_PUBLIC_CLIENTS_THROUGH_AUTHENTICATING_PROXY",
+      false,
+    ),
     settings,
     apiKeyFromEnvironment: Boolean(apiKey),
   };

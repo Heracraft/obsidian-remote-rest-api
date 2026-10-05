@@ -19,6 +19,7 @@ import { configureHttpServerTimeouts } from "../serverTimeouts";
 import type { CryptoSettings } from "../types";
 import { ConfigError, loadConfig, readState, writeState, type StandaloneConfig } from "./config";
 import { SharpImageScaler } from "./imageScaler";
+import { assertBindingIsPrivate, checkClient, NetworkPolicyError } from "./network";
 import { App } from "./obsidian";
 import { watchVault } from "./watch";
 
@@ -36,6 +37,24 @@ async function main(): Promise<void> {
       process.exit(2);
     }
     throw error;
+  }
+
+  try {
+    assertBindingIsPrivate(config.settings.bindingHost ?? "0.0.0.0", config.allowedNetworks);
+  } catch (error) {
+    if (error instanceof NetworkPolicyError) {
+      console.error(`[REST API] Refusing to start. ${error.message}`);
+      process.exit(2);
+    }
+    throw error;
+  }
+  if (config.allowPublicClientsThroughAuthenticatingProxy) {
+    console.warn(
+      "[REST API] WARNING: ALLOW_PUBLIC_CLIENTS_THROUGH_AUTHENTICATING_PROXY is on. Requests a proxy forwards for " +
+        "clients on the public internet will be served. Anyone who gets past that proxy, or reaches this server " +
+        "around it, can read, change and delete every note with one leaked API key. Make sure the proxy " +
+        "authenticates every request on this route (forward auth, mTLS, an SSO gateway) before it is forwarded.",
+    );
   }
 
   const vaultStat = fs.statSync(config.vaultPath, { throwIfNoEntry: false });
@@ -97,21 +116,46 @@ async function main(): Promise<void> {
   });
   handler.setupRouter();
 
+  // Every request passes the network gate before the API sees it. A refusal
+  // is a bare 403 that says why, sent before authentication, so a client
+  // outside the allowed networks learns nothing about the API behind it.
+  const gated: http.RequestListener = (req, res) => {
+    const verdict = checkClient(req, config.allowedNetworks, config.allowPublicClientsThroughAuthenticatingProxy);
+    if (verdict.allowed) {
+      handler.api(req, res);
+      return;
+    }
+    if (settings.enableVerboseLogging || verdict.reason === "source") {
+      log(`Refused a request from ${verdict.refused ?? "unknown"} (${verdict.reason === "source" ? "source address" : "forwarded client"} outside the allowed networks)`);
+    }
+    res.writeHead(403, { "Content-Type": "application/json", Connection: "close" });
+    res.end(
+      JSON.stringify({
+        message:
+          verdict.reason === "source"
+            ? "This server only answers clients on private networks (Tailscale, WireGuard, LAN)."
+            : "This server does not answer requests forwarded for clients on the public internet.",
+        errorCode: 40322,
+      }),
+    );
+  };
+
   const servers: http.Server[] = [];
   const host = settings.bindingHost ?? "0.0.0.0";
+  const shownHost = host.includes(":") ? `[${host}]` : host;
   if (settings.enableSecureServer && settings.crypto) {
     const server = https.createServer(
       { key: settings.crypto.privateKey, cert: buildServerCertificateChain(settings.crypto) },
-      handler.api,
+      gated,
     );
     configureHttpServerTimeouts(server);
-    server.listen(settings.port, host, () => log(`Listening on https://${host}:${settings.port}/`));
+    server.listen(settings.port, host, () => log(`Listening on https://${shownHost}:${settings.port}/`));
     servers.push(server);
   }
   if (settings.enableInsecureServer) {
-    const server = http.createServer(handler.api);
+    const server = http.createServer(gated);
     configureHttpServerTimeouts(server);
-    server.listen(settings.insecurePort, host, () => log(`Listening on http://${host}:${settings.insecurePort}/`));
+    server.listen(settings.insecurePort, host, () => log(`Listening on http://${shownHost}:${settings.insecurePort}/`));
     servers.push(server);
   }
   for (const server of servers) {
