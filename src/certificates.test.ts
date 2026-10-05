@@ -501,12 +501,22 @@ function signLeafWithCa(
   };
 }
 
+// The test keys are TEST_KEY_SIZE bits, below what OpenSSL 3.5 and later
+// accept at their default security level 2 ("ee key too small"). The
+// handshakes here test chains and name constraints, not key strength, so
+// they run at level 1 on both ends.
+const TEST_CIPHERS = "DEFAULT@SECLEVEL=1";
+
 async function handshakeWith(
   served: { cert: string; privateKey: string; caCert?: string },
   trustedCa: string,
 ): Promise<boolean> {
   const server = https.createServer(
-    { key: served.privateKey, cert: [served.cert, served.caCert ?? ""].join("\n") },
+    {
+      key: served.privateKey,
+      cert: [served.cert, served.caCert ?? ""].join("\n"),
+      ciphers: TEST_CIPHERS,
+    },
     (_req, res) => res.end("ok"),
   );
   await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
@@ -514,7 +524,7 @@ async function handshakeWith(
   try {
     return await new Promise<boolean>((resolve, reject) => {
       const socket = tls.connect(
-        { host: "127.0.0.1", port, ca: trustedCa, rejectUnauthorized: true },
+        { host: "127.0.0.1", port, ca: trustedCa, rejectUnauthorized: true, ciphers: TEST_CIPHERS },
         () => {
           const authorized = socket.authorized;
           socket.end();
@@ -660,7 +670,7 @@ describe("buildServerCertificateChain", () => {
   test("a client trusting only the CA verifies a handshake with the served chain", async () => {
     const crypto = generateCryptoSettings({ keySize: TEST_KEY_SIZE });
     const server = https.createServer(
-      { key: crypto.privateKey, cert: buildServerCertificateChain(crypto) },
+      { key: crypto.privateKey, cert: buildServerCertificateChain(crypto), ciphers: TEST_CIPHERS },
       (_req, res) => res.end("ok"),
     );
     await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
@@ -670,7 +680,7 @@ describe("buildServerCertificateChain", () => {
       const peerChain = await new Promise<{ subject: string; issuer: string; authorized: boolean }>(
         (resolve, reject) => {
           const socket = tls.connect(
-            { host: "127.0.0.1", port, ca: crypto.caCert, rejectUnauthorized: true },
+            { host: "127.0.0.1", port, ca: crypto.caCert, rejectUnauthorized: true, ciphers: TEST_CIPHERS },
             () => {
               const peer = socket.getPeerCertificate(true);
               const result = {
@@ -699,7 +709,7 @@ describe("buildServerCertificateChain", () => {
     const served = generateCryptoSettings({ keySize: TEST_KEY_SIZE });
     const other = generateCryptoSettings({ keySize: TEST_KEY_SIZE });
     const server = https.createServer(
-      { key: served.privateKey, cert: buildServerCertificateChain(served) },
+      { key: served.privateKey, cert: buildServerCertificateChain(served), ciphers: TEST_CIPHERS },
       (_req, res) => res.end("ok"),
     );
     await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
@@ -709,7 +719,7 @@ describe("buildServerCertificateChain", () => {
       await expect(
         new Promise<void>((resolve, reject) => {
           const socket = tls.connect(
-            { host: "127.0.0.1", port, ca: other.caCert, rejectUnauthorized: true },
+            { host: "127.0.0.1", port, ca: other.caCert, rejectUnauthorized: true, ciphers: TEST_CIPHERS },
             () => {
               socket.end();
               resolve();
