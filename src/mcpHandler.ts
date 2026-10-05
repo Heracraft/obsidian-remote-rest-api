@@ -1686,29 +1686,6 @@ export class McpHandler {
     );
 
     this.tool(
-      "command_list",
-      dedent`Return all registered Obsidian commands. Each entry has an 'id' and a human-readable 'name'. Pass the 'id' to command_execute to run a command.`,
-      {},
-      READ_ONLY_ANNOTATIONS,
-      async () => {
-        return this.text({ commands: this.ops.listCommands() });
-      },
-    );
-
-    this.tool(
-      "command_execute",
-      dedent`Execute an Obsidian command by its ID. Use command_list to discover available command IDs. Throws if the command ID does not exist.`,
-      { commandId: z.string().describe("The command ID to execute (e.g. 'editor:toggle-bold')") },
-      // Command effects are arbitrary and unpredictable (any registered Obsidian command), so
-      // this is annotated conservatively as destructive and non-idempotent rather than assumed safe.
-      { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false },
-      async ({ commandId }: { commandId: string }) => {
-        this.ops.executeCommand(commandId);
-        return this.text({ message: "OK" });
-      },
-    );
-
-    this.tool(
       "open_file",
       dedent`Open a file in the Obsidian UI. If the file does not exist, Obsidian will create a new document at that path. Set newLeaf to true to open in a new pane rather than the current one.`,
       {

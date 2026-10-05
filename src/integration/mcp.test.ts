@@ -1313,40 +1313,6 @@ describe("tag_list tool", () => {
 });
 
 // ---------------------------------------------------------------------------
-// command_list + command_execute
-// ---------------------------------------------------------------------------
-
-describe("command_list tool", () => {
-  test("returns commands with id and name strings", async () => {
-    const result = await client.callTool({ name: "command_list", arguments: {} });
-    const body = jsonOf<{ commands: { id: string; name: string }[] }>(result);
-    expect(Array.isArray(body.commands)).toBe(true);
-    expect(body.commands.length).toBeGreaterThan(0);
-    for (const cmd of body.commands) {
-      expect(typeof cmd.id).toBe("string");
-      expect(typeof cmd.name).toBe("string");
-    }
-  });
-});
-
-describe("command_execute tool", () => {
-  test("executes editor:save-file and returns OK", async () => {
-    const listResult = await client.callTool({ name: "command_list", arguments: {} });
-    const { commands } = jsonOf<{ commands: { id: string }[] }>(listResult);
-    if (!commands.find((c) => c.id === "editor:save-file")) {
-      throw new Error(
-        'Command "editor:save-file" not found — cannot safely execute an arbitrary command.'
-      );
-    }
-    const result = await client.callTool({
-      name: "command_execute",
-      arguments: { commandId: "editor:save-file" },
-    });
-    expect(jsonOf<any>(result).message).toBe("OK");
-  });
-});
-
-// ---------------------------------------------------------------------------
 // open_file
 // ---------------------------------------------------------------------------
 

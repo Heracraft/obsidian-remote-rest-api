@@ -2,7 +2,6 @@ import {
   getAllTags,
   App,
   CachedMetadata,
-  Command,
   Component,
   MarkdownRenderer,
   prepareSimpleSearch,
@@ -33,7 +32,6 @@ import jsonLogic from "json-logic-js";
 import WildcardRegexp from "glob-to-regexp";
 
 export class FileNotFoundError extends Error {}
-export class CommandNotFoundError extends Error {}
 export class DestinationAlreadyExistsError extends Error {}
 
 import {
@@ -1022,25 +1020,6 @@ export class VaultOperations {
       tags.push({ name: tag, count });
     }
     return tags;
-  }
-
-  listCommands(): Command[] {
-    const commands: Command[] = [];
-    for (const commandName in this.app.commands.commands) {
-      commands.push({
-        id: commandName,
-        name: this.app.commands.commands[commandName].name,
-      });
-    }
-    return commands;
-  }
-
-  executeCommand(commandId: string): void {
-    const cmd = this.app.commands.commands[commandId];
-    if (!cmd) {
-      throw new CommandNotFoundError(`Command not found: ${commandId}`);
-    }
-    this.app.commands.executeCommandById(commandId);
   }
 
   openVaultFile(filePath: string, newLeaf = false): void {

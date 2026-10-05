@@ -74,7 +74,6 @@ import LocalRestApiPublicApiImpl from "./api";
 import { OpenApiSpec } from "./openApiSpec";
 import type { LocalRestApiPublicApi } from "./publicApi";
 import {
-  CommandNotFoundError,
   DestinationAlreadyExistsError,
   FileNotFoundError,
   VaultOperations,
@@ -2391,30 +2390,6 @@ export default class RequestHandler {
     res.json({ tags: this.operations.getAllTags() });
   }
 
-  async commandGet(_req: express.Request, res: express.Response): Promise<void> {
-    res.json({ commands: this.operations.listCommands() });
-  }
-
-  async commandPost(
-    req: express.Request,
-    res: express.Response,
-  ): Promise<void> {
-    try {
-      this.operations.executeCommand(req.params.commandId);
-    } catch (err) {
-      if (err instanceof CommandNotFoundError) {
-        this.returnCannedResponse(res, { statusCode: 404 });
-      } else {
-        this.returnCannedResponse(res, {
-          statusCode: 500,
-          message: err instanceof Error ? err.message : String(err),
-        });
-      }
-      return;
-    }
-    this.returnCannedResponse(res, { statusCode: 204 });
-  }
-
   async searchSimplePost(
     req: express.Request,
     res: express.Response,
@@ -2865,9 +2840,6 @@ export default class RequestHandler {
       });
 
     this.api.route("/tags/").get(this.handle((rq, rs) => this.tagsGet(rq, rs)));
-
-    this.api.route("/commands/").get(this.handle((rq, rs) => this.commandGet(rq, rs)));
-    this.api.route("/commands/:commandId/").post(this.handle((rq, rs) => this.commandPost(rq, rs)));
 
     this.api.route("/search/").post(this.handle((rq, rs) => this.searchQueryPost(rq, rs)));
 

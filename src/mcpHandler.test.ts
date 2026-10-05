@@ -122,10 +122,6 @@ function makeMockOps() {
       .fn()
       .mockResolvedValue([{ filename: "a.md", score: 1, matches: [] }]),
     getAllTags: jest.fn().mockReturnValue([{ name: "todo", count: 3 }]),
-    listCommands: jest
-      .fn()
-      .mockReturnValue([{ id: "cmd-id", name: "Command Name" }]),
-    executeCommand: jest.fn(),
     openVaultFile: jest.fn(),
     moveVaultFile: jest.fn().mockResolvedValue(""),
     copyVaultFile: jest.fn().mockResolvedValue(""),
@@ -273,8 +269,8 @@ describe("McpHandler", () => {
 
   // ---- tool registration --------------------------------------------------
 
-  test("registers all 19 tools (the two signed-URL tools are there because that setting is on by default)", () => {
-    expect(registerTool).toHaveBeenCalledTimes(19);
+  test("registers all 17 tools (the two signed-URL tools are there because that setting is on by default)", () => {
+    expect(registerTool).toHaveBeenCalledTimes(17);
     const names = registerTool.mock.calls.map((c: unknown[]) => c[0]);
     expect(names).toEqual(
       expect.arrayContaining([
@@ -294,8 +290,6 @@ describe("McpHandler", () => {
         "search_query",
         "search_simple",
         "tag_list",
-        "command_list",
-        "command_execute",
         "open_file",
       ]),
     );
@@ -314,7 +308,6 @@ describe("McpHandler", () => {
         "search_query",
         "search_simple",
         "tag_list",
-        "command_list",
       ]) {
         expect(getToolAnnotations(name)).toEqual({
           readOnlyHint: true,
@@ -325,8 +318,8 @@ describe("McpHandler", () => {
       }
     });
 
-    test("vault_patch, vault_delete, vault_move, vault_copy, and command_execute are annotated as destructive", () => {
-      for (const name of ["vault_patch", "vault_delete", "vault_move", "vault_copy", "command_execute"]) {
+    test("vault_patch, vault_delete, vault_move, and vault_copy are annotated as destructive", () => {
+      for (const name of ["vault_patch", "vault_delete", "vault_move", "vault_copy"]) {
         const annotations = getToolAnnotations(name);
         expect(annotations.readOnlyHint).toBe(false);
         expect(annotations.destructiveHint).toBe(true);
@@ -766,12 +759,12 @@ describe("McpHandler", () => {
       build(UNSIGNED);
       expect(registeredNames()).not.toContain("vault_get_download_url");
       expect(registeredNames()).not.toContain("vault_get_upload_url");
-      expect(registerTool).toHaveBeenCalledTimes(17);
+      expect(registerTool).toHaveBeenCalledTimes(15);
       build();
       expect(registeredNames()).toEqual(
         expect.arrayContaining(["vault_get_download_url", "vault_get_upload_url"]),
       );
-      expect(registerTool).toHaveBeenCalledTimes(19);
+      expect(registerTool).toHaveBeenCalledTimes(17);
     });
 
     test("setSignedUrlsEnabled adds and removes the tools without rebuilding the handler", () => {
@@ -2104,36 +2097,6 @@ describe("McpHandler", () => {
     expect(parseText(result).tags).toEqual([{ name: "todo", count: 3 }]);
   });
 
-  // ---- command_list -------------------------------------------------------
-
-  test("command_list returns all commands", async () => {
-    const cb = getToolCallback("command_list");
-    const result = await cb({});
-    expect(ops.listCommands).toHaveBeenCalled();
-    expect(parseText(result).commands).toEqual([
-      { id: "cmd-id", name: "Command Name" },
-    ]);
-  });
-
-  // ---- command_execute ----------------------------------------------------
-
-  test("command_execute calls executeCommand and returns OK", async () => {
-    const cb = getToolCallback("command_execute");
-    const result = await cb({ commandId: "cmd-id" });
-    expect(ops.executeCommand).toHaveBeenCalledWith("cmd-id");
-    expect(parseText(result).message).toBe("OK");
-  });
-
-  test("command_execute propagates error when command not found", async () => {
-    ops.executeCommand.mockImplementation(() => {
-      throw new Error("Command not found: bad-id");
-    });
-    const cb = getToolCallback("command_execute");
-    await expect(cb({ commandId: "bad-id" })).rejects.toThrow(
-      "Command not found",
-    );
-  });
-
   // ---- open_file ----------------------------------------------------------
 
   test("open_file calls openVaultFile and returns OK", async () => {
@@ -2187,8 +2150,8 @@ describe("McpHandler", () => {
 
       const first = await send(1);
       const second = await send(2);
-      expect(first.body.result.tools).toHaveLength(19);
-      expect(second.body.result.tools).toHaveLength(19);
+      expect(first.body.result.tools).toHaveLength(17);
+      expect(second.body.result.tools).toHaveLength(17);
       expect(first.headers["mcp-session-id"]).toBeUndefined();
       expect(second.headers["mcp-session-id"]).toBeUndefined();
     });
@@ -2328,7 +2291,7 @@ describe("McpHandler", () => {
         .send(sessionlessRequest(1, "tools/list"))
         .expect(200);
 
-      expect(res.body.result.tools).toHaveLength(19);
+      expect(res.body.result.tools).toHaveLength(17);
       expect(res.headers["mcp-session-id"]).toBeUndefined();
     });
 
@@ -2456,7 +2419,7 @@ describe("McpHandler", () => {
         .expect(200);
 
       const message = sseResult(res.text);
-      expect(message.result.tools).toHaveLength(19);
+      expect(message.result.tools).toHaveLength(17);
       const vaultList = (message.result.tools as { name: string; inputSchema: unknown }[]).find(
         (t) => t.name === "vault_list",
       );

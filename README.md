@@ -51,7 +51,6 @@ Access your vault through the **REST API** or the **built-in [MCP server](https:
 - **Search your vault** — simple full-text search or structured [JsonLogic](https://jsonlogic.com/) queries against note metadata (frontmatter, tags, path, content)
 - **Follow vault events** — subscribe to Obsidian events (a note created, its frontmatter changed, a file opened) as a filtered Server-Sent Events stream
 - **Access the active file** — read or write whatever note is currently open in Obsidian
-- **List and execute commands** — trigger any Obsidian command as if you'd used the command palette
 - **Query tags** — list all tags across your vault with usage counts
 - **Open files in Obsidian** — tell Obsidian to open a specific note in its UI
 - **Extend the API** — other plugins can register their own routes via the [API extension interface](https://github.com/coddingtonbear/obsidian-local-rest-api/wiki/Adding-your-own-API-Routes-via-an-Extension)
@@ -173,8 +172,6 @@ Any MCP client that supports the Streamable HTTP transport can connect to `https
 | `/active/` | GET PUT PATCH POST DELETE | Operate on the currently open file |
 | `/search/simple/` | POST | Full-text search across all notes |
 | `/search/` | POST | Structured search via JsonLogic |
-| `/commands/` | GET | List available Obsidian commands |
-| `/commands/{commandId}/` | POST | Execute a command |
 | `/tags/` | GET | List all tags with usage counts |
 | `/open/{path}` | POST | Open a file in the Obsidian UI |
 | `/` | GET | Server status and authentication check |
@@ -338,7 +335,7 @@ Each message's `id` is `<epoch>-<counter>`. A new epoch, or a gap in the counter
 ## MCP (Model Context Protocol)
 
 > [!NOTE]
-> Several third-party MCP servers for Obsidian exist, but they are no longer necessary — this plugin ships a built-in MCP server that runs inside Obsidian and has direct access to your vault's live metadata, active file, and command palette. If you are currently using a third-party server, switching to this one is likely to give you better results.
+> Several third-party MCP servers for Obsidian exist, but they are no longer necessary — this plugin ships a built-in MCP server that runs inside Obsidian and has direct access to your vault's live metadata and active file. If you are currently using a third-party server, switching to this one is likely to give you better results.
 
 The plugin includes a built-in MCP server at `/mcp/` so AI agents and MCP-compatible clients can interact with your vault without hand-crafting HTTP requests.
 
@@ -389,8 +386,6 @@ The exact config syntax varies by client; see the [Quick start](#mcp-clients) ex
 | `search_query` | Search using a [JsonLogic](https://jsonlogic.com/) query against note metadata |
 | `search_simple` | Full-text search using Obsidian's built-in search |
 | `tag_list` | List all tags across the vault with usage counts |
-| `command_list` | List all registered Obsidian commands |
-| `command_execute` | Execute an Obsidian command by ID |
 | `open_file` | Open a file in the Obsidian UI |
 
 ### Binary files and attachments
@@ -438,7 +433,7 @@ Two practical notes: whether a chat client renders a linked image inline is up t
 
 Other plugins can register their own authenticated routes, public routes, MCP tools, and [streamable events](#extension-events) against this plugin's server. See [Adding your own API Routes via an Extension](https://github.com/coddingtonbear/obsidian-local-rest-api/wiki/Adding-your-own-API-Routes-via-an-Extension) for a walkthrough.
 
-Public routes (`addPublicRoute`) are answered before the API key is checked, so they can't sit under a prefix the plugin serves its own routes from: `/vault/`, `/active/`, `/search/`, `/commands/`, `/events/`, `/mcp/`, `/open/`, and `/tags/`, in any letter case, along with `/`, the OpenAPI documents, and the certificate. A path whose first segment is a pattern (`/:name/`, `/*`) is refused for the same reason. `addPublicRoute` throws when you register one of these, so start public routes with a literal segment of your own, such as your plugin's id. Authenticated routes (`addRoute`) and vault sub-resources are unaffected.
+Public routes (`addPublicRoute`) are answered before the API key is checked, so they can't sit under a prefix the plugin serves its own routes from: `/vault/`, `/active/`, `/search/`, `/events/`, `/mcp/`, `/open/`, and `/tags/`, in any letter case, along with `/`, the OpenAPI documents, and the certificate. A path whose first segment is a pattern (`/:name/`, `/*`) is refused for the same reason. `addPublicRoute` throws when you register one of these, so start public routes with a literal segment of your own, such as your plugin's id. Authenticated routes (`addRoute`) and vault sub-resources are unaffected.
 
 ### Typed extension API
 

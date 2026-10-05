@@ -40,7 +40,6 @@ import { FrontmatterParseError } from "markdown-patch";
 import {
   App,
   TFile,
-  Command,
   CachedMetadata,
   FileSystemAdapter,
   PluginManifest,
@@ -3923,90 +3922,6 @@ describe("requestHandler", () => {
     });
   });
 
-  describe("commandGet", () => {
-    test("acceptable", async () => {
-      const arbitraryCommand = new Command();
-      arbitraryCommand.id = "beep";
-      arbitraryCommand.name = "boop";
-
-      app.commands.commands[arbitraryCommand.id] = arbitraryCommand;
-
-      const result = await request(server)
-        .get(`/commands/`)
-        .set("Authorization", `Bearer ${API_KEY}`)
-        .expect(200);
-
-      expect(result.body.commands).toEqual([
-        {
-          id: arbitraryCommand.id,
-          name: arbitraryCommand.name,
-        },
-      ]);
-    });
-
-    test("unauthorized", async () => {
-      const arbitraryCommand = new Command();
-      arbitraryCommand.id = "beep";
-      arbitraryCommand.name = "boop";
-
-      app.commands.commands[arbitraryCommand.id] = arbitraryCommand;
-
-      await request(server).get(`/commands/`).expect(401);
-    });
-  });
-
-  describe("commandPost", () => {
-    test("acceptable", async () => {
-      const arbitraryCommand = new Command();
-      arbitraryCommand.id = "beep";
-      arbitraryCommand.name = "boop";
-
-      app.commands.commands[arbitraryCommand.id] = arbitraryCommand;
-
-      await request(server)
-        .post(`/commands/${arbitraryCommand.id}/`)
-        .set("Authorization", `Bearer ${API_KEY}`)
-        .expect(204);
-
-      expect(app._executeCommandById).toEqual([arbitraryCommand.id]);
-    });
-
-    test("command not found returns 404", async () => {
-      await request(server)
-        .post(`/commands/nonexistent-command/`)
-        .set("Authorization", `Bearer ${API_KEY}`)
-        .expect(404);
-    });
-
-    test("command execution error returns 500", async () => {
-      const arbitraryCommand = new Command();
-      arbitraryCommand.id = "beep";
-      arbitraryCommand.name = "boop";
-
-      app.commands.commands[arbitraryCommand.id] = arbitraryCommand;
-      app.commands.executeCommandById = () => {
-        throw new Error("command crashed");
-      };
-
-      await request(server)
-        .post(`/commands/${arbitraryCommand.id}/`)
-        .set("Authorization", `Bearer ${API_KEY}`)
-        .expect(500);
-    });
-
-    test("unauthorized", async () => {
-      const arbitraryCommand = new Command();
-      arbitraryCommand.id = "beep";
-      arbitraryCommand.name = "boop";
-
-      app.commands.commands[arbitraryCommand.id] = arbitraryCommand;
-
-      await request(server)
-        .post(`/commands/${arbitraryCommand.id}`)
-        .expect(401);
-    });
-  });
-
   describe("searchSimplePost", () => {
     beforeEach(() => {
       // Setup mock for prepareSimpleSearch
@@ -5032,7 +4947,6 @@ describe("requestHandler", () => {
       "/vault",
       "/active/",
       "/search/simple/",
-      "/commands/:commandId/",
       "/events/",
       "/mcp",
       "/open/*",

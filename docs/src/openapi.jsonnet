@@ -282,7 +282,6 @@ std.manifestYamlDoc(
       { name: 'Vault Directories' },
       { name: 'Tags' },
       { name: 'Search' },
-      { name: 'Commands' },
       { name: 'Events' },
       { name: 'Open' },
       { name: 'System' },
@@ -513,88 +512,6 @@ std.manifestYamlDoc(
                       { name: 'work', count: 2 },
                       { name: 'work/tasks', count: 2 },
                     ],
-                  },
-                },
-              },
-            },
-          },
-        },
-      },
-      '/commands/': {
-        get: {
-          tags: [
-            'Commands',
-          ],
-          summary: 'Get a list of available commands.\n',
-          responses: {
-            '200': {
-              description: 'A list of available commands.',
-              content: {
-                'application/json': {
-                  schema: {
-                    type: 'object',
-                    properties: {
-                      commands: {
-                        type: 'array',
-                        items: {
-                          type: 'object',
-                          properties: {
-                            id: {
-                              type: 'string',
-                            },
-                            name: {
-                              type: 'string',
-                            },
-                          },
-                        },
-                      },
-                    },
-                  },
-                  example: {
-                    commands: [
-                      {
-                        id: 'global-search:open',
-                        name: 'Search: Search in all files',
-                      },
-                      {
-                        id: 'graph:open',
-                        name: 'Graph view: Open graph view',
-                      },
-                    ],
-                  },
-                },
-              },
-            },
-          },
-        },
-      },
-      '/commands/{commandId}/': {
-        post: {
-          tags: [
-            'Commands',
-          ],
-          summary: 'Execute a command.\n',
-          parameters: [
-            {
-              name: 'commandId',
-              'in': 'path',
-              description: 'The id of the command to execute',
-              required: true,
-              schema: {
-                type: 'string',
-              },
-            },
-          ],
-          responses: {
-            '204': {
-              description: 'Success',
-            },
-            '404': {
-              description: 'The command you specified does not exist.',
-              content: {
-                'application/json': {
-                  schema: {
-                    '$ref': '#/components/schemas/Error',
                   },
                 },
               },

@@ -1337,57 +1337,6 @@ paths:
         Update the content of the active file open in Obsidian.
       tags:
         - "Active File"
-  /commands/:
-    get:
-      responses:
-        "200":
-          content:
-            application/json:
-              example:
-                commands:
-                  - id: "global-search:open"
-                    name: "Search: Search in all files"
-                  - id: "graph:open"
-                    name: "Graph view: Open graph view"
-              schema:
-                properties:
-                  commands:
-                    items:
-                      properties:
-                        id:
-                          type: "string"
-                        name:
-                          type: "string"
-                      type: "object"
-                    type: "array"
-                type: "object"
-          description: "A list of available commands."
-      summary: |
-        Get a list of available commands.
-      tags:
-        - "Commands"
-  "/commands/{commandId}/":
-    post:
-      parameters:
-        - description: "The id of the command to execute"
-          in: "path"
-          name: "commandId"
-          required: true
-          schema:
-            type: "string"
-      responses:
-        "204":
-          description: "Success"
-        "404":
-          content:
-            application/json:
-              schema:
-                "$ref": "#/components/schemas/Error"
-          description: "The command you specified does not exist."
-      summary: |
-        Execute a command.
-      tags:
-        - "Commands"
   "/events/{emitter}/{event}/":
     parameters:
       - description: "The Obsidian object whose event to follow (`vault`, `metadataCache`, `workspace`), or the plugin id of an extension that registered events."
@@ -1702,8 +1651,6 @@ paths:
         | `search_query` | Search using a JsonLogic query evaluated against each note's metadata |
         | `search_simple` | Full-text search using Obsidian's built-in search |
         | `tag_list` | List all tags across the vault with usage counts |
-        | `command_list` | List all registered Obsidian commands |
-        | `command_execute` | Execute an Obsidian command by ID |
         | `open_file` | Open a file in the Obsidian UI |
         
         ### Binary files
@@ -3592,7 +3539,6 @@ tags:
   - name: "Vault Directories"
   - name: "Tags"
   - name: "Search"
-  - name: "Commands"
   - name: "Events"
   - name: "Open"
   - name: "System"
