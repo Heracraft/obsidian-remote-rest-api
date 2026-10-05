@@ -1643,7 +1643,7 @@ export class McpHandler {
 
     this.tool(
       "search_simple",
-      dedent`Search vault files using Obsidian's built-in simple search. Returns an array of {filename, score, matches} objects sorted by relevance score. Each match includes the matched text and surrounding context characters (controlled by contextLength).`,
+      dedent`Search vault files for notes that contain every word of the query, case-insensitively (the file name counts). Returns an array of {filename, score, matches} objects sorted by relevance score. Each match includes the matched text and surrounding context characters (controlled by contextLength).`,
       {
         query: z.string().describe("Search query string"),
         contextLength: z
