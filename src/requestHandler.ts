@@ -583,10 +583,9 @@ export default class RequestHandler {
    *  Those catches map the errors their operation is known to throw -- not
    *  found, patch failed -- and answer anything else with a 500 or a coarse
    *  client error. A PathTraversalError or ConfigDirAccessError is neither: it
-   *  is the gate in VaultOperations refusing a path the boundary never saw
-   *  (`/active/` takes its path from the workspace, not the client), and it has
-   *  to reach `errorHandler`, which answers it with the policy's own status and
-   *  error code. Called first in any catch that would otherwise swallow it. */
+   *  is the gate in VaultOperations refusing a path, and it has to reach
+   *  `errorHandler`, which answers it with the policy's own status and error
+   *  code. Called first in any catch that would otherwise swallow it. */
   private rethrowIfRefused(error: unknown): void {
     if (error instanceof PathTraversalError || error instanceof ConfigDirAccessError) {
       throw error;
@@ -613,35 +612,6 @@ export default class RequestHandler {
   private wholeFilePath(segments: string[]): string | null {
     if (segments.some((segment) => segment.includes("/"))) return null;
     return segments.join("/");
-  }
-
-  /** The wildcard suffix of an `/active/*` route, split into
-   *  decoded segments. Express decodes the `req.params[0]` wildcard capture
-   *  before the handler runs — collapsing a `%2F` to a boundary — so the raw
-   *  suffix is recovered from `req.path` (still encoded) and each segment decoded
-   *  individually, mirroring {@link extractVaultPath}. The static prefix length
-   *  comes from the matched route pattern. Returns null (and sends a 400) on
-   *  malformed encoding. */
-  private rawSuffixSegments(
-    req: express.Request,
-    res: express.Response,
-  ): string[] | null {
-    const route = req.route as { path?: string } | undefined;
-    const routePath = route?.path ?? "";
-    // The pattern ends in the `*` wildcard; every earlier segment is static
-    // prefix. Dropping that many leading segments of the raw path leaves the
-    // still-encoded suffix.
-    const prefixLength = routePath.split("/").length - 1;
-    const rawSegments = req.path
-      .split("/")
-      .slice(prefixLength)
-      .filter((segment) => segment.length > 0);
-    try {
-      return rawSegments.map((segment) => decodeURIComponent(segment));
-    } catch {
-      this.returnCannedResponse(res, { errorCode: ErrorCode.PathTraversalNotAllowed });
-      return null;
-    }
   }
 
   async _vaultGet(
@@ -2170,221 +2140,6 @@ export default class RequestHandler {
     return this._vaultCopy(filePath, req, res);
   }
 
-  /**
-   * Delegates an `/active/` request to the corresponding `/vault/<path>`
-   * handler once the active file is known, tagging the response with the
-   * resolved path first.
-   *
-   * `handler` must be returned, not fired-and-forgotten (a bare call
-   * discards its promise, and with it any rejection -- the request would
-   * then hang forever, since the same failure a `/vault/` request routes to
-   * `errorHandler` via the `handle()` wrapper would here just vanish as an
-   * unhandled rejection with no response ever sent). Returning it lets this
-   * function's own promise adopt the handler's, so `handle()`'s `.catch(next)`
-   * still sees a failure that occurs inside it. This exact shape
-   * (`void this._vaultPut(...)`) previously caused unresponsive `/active/`
-   * requests whenever the underlying write threw.
-   */
-  async redirectToVaultPath(
-    file: TFile,
-    req: express.Request,
-    res: express.Response,
-    handler: (
-      path: string,
-      req: express.Request,
-      res: express.Response,
-    ) => Promise<void>,
-  ): Promise<void> {
-    const path = file.path;
-    res.set("Content-Location", encodeVaultPath(path));
-
-    return handler(path, req, res);
-  }
-
-  async activeFileGet(
-    req: express.Request,
-    res: express.Response,
-  ): Promise<void> {
-    const file = this.app.workspace.getActiveFile();
-    if (!file) {
-      this.returnCannedResponse(res, { statusCode: 404 });
-      return;
-    }
-
-    const suffixSegments = this.rawSuffixSegments(req, res);
-    if (suffixSegments === null) return;
-    res.set("Content-Location", encodeVaultPath(file.path));
-    return this._vaultGet(
-      [...file.path.split("/"), ...suffixSegments],
-      req,
-      res,
-    );
-  }
-
-  async activeFilePut(
-    req: express.Request,
-    res: express.Response,
-  ): Promise<void> {
-    const file = this.app.workspace.getActiveFile();
-    if (!file) {
-      this.returnCannedResponse(res, { statusCode: 404 });
-      return;
-    }
-    const suffixSegments = this.rawSuffixSegments(req, res);
-    if (suffixSegments === null) return;
-    if (suffixSegments.length > 0) {
-      const resolved = await this._resolvePathAndTarget([
-        ...file.path.split("/"),
-        ...suffixSegments,
-      ]);
-      if (resolved?.targetType) {
-        if (req.get("Target-Type") || req.get("Target")) {
-          this.returnCannedResponse(res, {
-            errorCode: ErrorCode.ConflictingTargetSpecification,
-          });
-          return;
-        }
-        res.set("Content-Location", encodeVaultPath(file.path));
-        return this._vaultPatchTargeted(
-          resolved.filePath,
-          resolved.targetType,
-          resolved.target ?? "",
-          "replace",
-          req,
-          res,
-          { createTargetIfMissing: true, source: "path", targetSegments: resolved.targetSegments },
-        );
-      }
-    }
-    const headerTarget = this._getHeaderTarget(req, res);
-    if (headerTarget !== undefined) {
-      if (!headerTarget) return; // error already sent
-      res.set("Content-Location", encodeVaultPath(file.path));
-      return this._vaultPatchTargeted(
-        file.path,
-        headerTarget.targetType,
-        headerTarget.target,
-        "replace",
-        req,
-        res,
-        { createTargetIfMissing: true, source: "header" },
-      );
-    }
-    return this.redirectToVaultPath(file, req, res, (p, rq, rs) => this._vaultPut(p, rq, rs));
-  }
-
-  async activeFilePost(
-    req: express.Request,
-    res: express.Response,
-  ): Promise<void> {
-    const file = this.app.workspace.getActiveFile();
-    if (!file) {
-      this.returnCannedResponse(res, { statusCode: 404 });
-      return;
-    }
-    const suffixSegments = this.rawSuffixSegments(req, res);
-    if (suffixSegments === null) return;
-    if (suffixSegments.length > 0) {
-      const resolved = await this._resolvePathAndTarget([
-        ...file.path.split("/"),
-        ...suffixSegments,
-      ]);
-      if (resolved?.targetType) {
-        if (req.get("Target-Type") || req.get("Target")) {
-          this.returnCannedResponse(res, {
-            errorCode: ErrorCode.ConflictingTargetSpecification,
-          });
-          return;
-        }
-        res.set("Content-Location", encodeVaultPath(file.path));
-        return this._vaultPatchTargeted(
-          resolved.filePath,
-          resolved.targetType,
-          resolved.target ?? "",
-          "append",
-          req,
-          res,
-          { source: "path", targetSegments: resolved.targetSegments },
-        );
-      }
-    }
-    const headerTarget = this._getHeaderTarget(req, res);
-    if (headerTarget !== undefined) {
-      if (!headerTarget) return; // error already sent
-      res.set("Content-Location", encodeVaultPath(file.path));
-      return this._vaultPatchTargeted(
-        file.path,
-        headerTarget.targetType,
-        headerTarget.target,
-        "append",
-        req,
-        res,
-        { source: "header" },
-      );
-    }
-    return this.redirectToVaultPath(file, req, res, (p, rq, rs) => this._vaultPost(p, rq, rs));
-  }
-
-  async activeFilePatch(
-    req: express.Request,
-    res: express.Response,
-  ): Promise<void> {
-    const file = this.app.workspace.getActiveFile();
-    if (!file) {
-      this.returnCannedResponse(res, { statusCode: 404 });
-      return;
-    }
-    const suffixSegments = this.rawSuffixSegments(req, res);
-    if (suffixSegments === null) return;
-    if (suffixSegments.length > 0) {
-      const resolved = await this._resolvePathAndTarget([
-        ...file.path.split("/"),
-        ...suffixSegments,
-      ]);
-      if (resolved?.targetType) {
-        res.set("Content-Location", encodeVaultPath(file.path));
-        return this._vaultPatch(resolved.filePath, req, res, {
-          targetType: resolved.targetType,
-          target: resolved.target,
-          targetSegments: resolved.targetSegments,
-        });
-      }
-    }
-    return this.redirectToVaultPath(
-      file,
-      req,
-      res,
-      (p, rq, rs) => this._vaultPatch(p, rq, rs),
-    );
-  }
-
-  async activeFileDelete(
-    req: express.Request,
-    res: express.Response,
-  ): Promise<void> {
-    const file = this.app.workspace.getActiveFile();
-    if (!file) {
-      this.returnCannedResponse(res, { statusCode: 404 });
-      return;
-    }
-    const suffixSegments = this.rawSuffixSegments(req, res);
-    if (suffixSegments === null) return;
-    if (suffixSegments.length > 0) {
-      this.returnCannedResponse(res, {
-        statusCode: 405,
-        message:
-          "Deleting a targeted section via URL is not supported. Use PATCH with Operation: replace and an empty body instead.",
-      });
-      return;
-    }
-    return this.redirectToVaultPath(
-      file,
-      req,
-      res,
-      (p, rq, rs) => this._vaultDelete(p, rq, rs),
-    );
-  }
-
   async tagsGet(_req: express.Request, res: express.Response): Promise<void> {
     res.json({ tags: this.operations.getAllTags() });
   }
@@ -2796,18 +2551,9 @@ export default class RequestHandler {
           const file = this.app.vault.getAbstractFileByPath(path);
           return file instanceof TFile ? file : null;
         },
-        getActiveFile: () => this.app.workspace.getActiveFile(),
         isSigned: (req) => this.requestIsSigned(req),
       }),
     );
-
-    this.api
-      .route("/active/*")
-      .get(this.handle((rq, rs) => this.activeFileGet(rq, rs)))
-      .put(this.handle((rq, rs) => this.activeFilePut(rq, rs)))
-      .patch(this.handle((rq, rs) => this.activeFilePatch(rq, rs)))
-      .post(this.handle((rq, rs) => this.activeFilePost(rq, rs)))
-      .delete(this.handle((rq, rs) => this.activeFileDelete(rq, rs)));
 
     this.api
       .route("/vault/*")

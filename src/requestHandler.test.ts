@@ -3105,94 +3105,10 @@ describe("requestHandler", () => {
       });
     });
 
-    describe("the active file is inside the config dir through a symlink", () => {
-      // /active/ takes its path from the workspace, not the client, so the
-      // boundary check never runs and only the VaultOperations gate refuses.
-      // That refusal has to surface as 403/40321 from every verb, not be
-      // swallowed by an endpoint-local catch into a 500 or a patch error.
-      beforeEach(() => {
-        app.vault.adapter = new FileSystemAdapter("/vault");
-        jest.spyOn(fs.realpathSync, "native").mockImplementation(
-          fakeRealpath({ "/vault/notes/cfg": "/vault/.obsidian" }, [
-            "/vault",
-            "/vault/.obsidian",
-            "/vault/.obsidian/README.md",
-            "/vault/notes",
-          ]),
-        );
-        const active = Object.assign(new TFile(), { path: "notes/cfg/README.md" });
-        jest.spyOn(app.workspace, "getActiveFile").mockReturnValue(active);
-      });
-
-      afterEach(() => {
-        jest.restoreAllMocks();
-      });
-
-      test("GET /active/ is refused with 403 and errorCode 40321", async () => {
-        const res = await request(server)
-          .get("/active/")
-          .set("Authorization", `Bearer ${API_KEY}`);
-        expect(res.status).toBe(403);
-        expect(res.body.errorCode).toBe(40321);
-      });
-
-      test("PUT /active/ is refused with 403 and errorCode 40321", async () => {
-        const res = await request(server)
-          .put("/active/")
-          .set("Authorization", `Bearer ${API_KEY}`)
-          .set("Content-Type", "text/markdown")
-          .send("pwned");
-        expect(res.status).toBe(403);
-        expect(res.body.errorCode).toBe(40321);
-      });
-
-      test("POST /active/ is refused with 403 and errorCode 40321", async () => {
-        const res = await request(server)
-          .post("/active/")
-          .set("Authorization", `Bearer ${API_KEY}`)
-          .set("Content-Type", "text/markdown")
-          .send("pwned");
-        expect(res.status).toBe(403);
-        expect(res.body.errorCode).toBe(40321);
-      });
-
-      test("PATCH /active/ (2.0) is refused with 403 and errorCode 40321", async () => {
-        const res = await request(server)
-          .patch("/active/")
-          .set("Authorization", `Bearer ${API_KEY}`)
-          .set("Content-Type", "application/json")
-          .send({ targetType: "heading", target: ["Intro"], operation: "append", content: "x" });
-        expect(res.status).toBe(403);
-        expect(res.body.errorCode).toBe(40321);
-      });
-
-      test("PATCH /active/ (1.x) is refused with 403 and errorCode 40321", async () => {
-        const res = await request(server)
-          .patch("/active/")
-          .set("Authorization", `Bearer ${API_KEY}`)
-          .set("Markdown-Patch-Version", "1")
-          .set("Content-Type", "text/markdown")
-          .set("Operation", "append")
-          .set("Target-Type", "heading")
-          .set("Target", "Intro")
-          .send("x");
-        expect(res.status).toBe(403);
-        expect(res.body.errorCode).toBe(40321);
-      });
-
-      test("DELETE /active/ is refused with 403 and errorCode 40321", async () => {
-        const res = await request(server)
-          .delete("/active/")
-          .set("Authorization", `Bearer ${API_KEY}`);
-        expect(res.status).toBe(403);
-        expect(res.body.errorCode).toBe(40321);
-      });
-    });
-
     describe("a refusal raised below the handler keeps its error code", () => {
       // VaultOperations re-checks the final path before touching disk. If that
       // backstop is what fires, the client should still see 40321, not a generic
-      // "failed to move file".
+      // "failed to move file", a 500, or a patch error from an endpoint-local catch.
       test("MOVE", async () => {
         jest
           .spyOn(handler["operations"], "moveVaultFile")
@@ -3213,6 +3129,73 @@ describe("requestHandler", () => {
           .copy("/vault/notes/a.md")
           .set("Authorization", `Bearer ${API_KEY}`)
           .set("Destination", "elsewhere/a.md");
+        expect(res.status).toBe(403);
+        expect(res.body.errorCode).toBe(40321);
+      });
+
+      test("PUT", async () => {
+        jest
+          .spyOn(handler["operations"], "writeFileContent")
+          .mockRejectedValue(new ConfigDirAccessError("Path is inside the config dir."));
+        const res = await request(server)
+          .put("/vault/notes/a.md")
+          .set("Authorization", `Bearer ${API_KEY}`)
+          .set("Content-Type", "text/markdown")
+          .send("pwned");
+        expect(res.status).toBe(403);
+        expect(res.body.errorCode).toBe(40321);
+      });
+
+      test("POST", async () => {
+        jest
+          .spyOn(handler["operations"], "appendFileContent")
+          .mockRejectedValue(new ConfigDirAccessError("Path is inside the config dir."));
+        const res = await request(server)
+          .post("/vault/notes/a.md")
+          .set("Authorization", `Bearer ${API_KEY}`)
+          .set("Content-Type", "text/markdown")
+          .send("pwned");
+        expect(res.status).toBe(403);
+        expect(res.body.errorCode).toBe(40321);
+      });
+
+      test("PATCH (2.0)", async () => {
+        jest
+          .spyOn(handler["operations"], "patchFileSectionMdp2")
+          .mockRejectedValue(new ConfigDirAccessError("Path is inside the config dir."));
+        const res = await request(server)
+          .patch("/vault/notes/a.md")
+          .set("Authorization", `Bearer ${API_KEY}`)
+          .set("Content-Type", "application/json")
+          .send({ targetType: "heading", target: ["Intro"], operation: "append", content: "x" });
+        expect(res.status).toBe(403);
+        expect(res.body.errorCode).toBe(40321);
+      });
+
+      test("PATCH (1.x)", async () => {
+        jest
+          .spyOn(handler["operations"], "patchFileSection")
+          .mockRejectedValue(new ConfigDirAccessError("Path is inside the config dir."));
+        const res = await request(server)
+          .patch("/vault/notes/a.md")
+          .set("Authorization", `Bearer ${API_KEY}`)
+          .set("Markdown-Patch-Version", "1")
+          .set("Content-Type", "text/markdown")
+          .set("Operation", "append")
+          .set("Target-Type", "heading")
+          .set("Target", "Intro")
+          .send("x");
+        expect(res.status).toBe(403);
+        expect(res.body.errorCode).toBe(40321);
+      });
+
+      test("DELETE", async () => {
+        jest
+          .spyOn(handler["operations"], "deleteVaultFile")
+          .mockRejectedValue(new ConfigDirAccessError("Path is inside the config dir."));
+        const res = await request(server)
+          .delete("/vault/notes/a.md")
+          .set("Authorization", `Bearer ${API_KEY}`);
         expect(res.status).toBe(403);
         expect(res.body.errorCode).toBe(40321);
       });
@@ -4945,7 +4928,6 @@ describe("requestHandler", () => {
       "/vault/*",
       "/vault/secret.md",
       "/vault",
-      "/active/",
       "/search/simple/",
       "/events/",
       "/mcp",
@@ -5138,22 +5120,6 @@ describe("requestHandler", () => {
       expect(seen[0].segments).toEqual(["a/b"]);
     });
 
-    test("routes under the active file too", async () => {
-      const active = Object.assign(new TFile(), { path: "Daily/today.md" });
-      jest.spyOn(app.workspace, "getActiveFile").mockReturnValue(active);
-      const { seen } = registerComments();
-      await request(server)
-        .get("/active/comments/a1f3")
-        .set("Authorization", `Bearer ${API_KEY}`)
-        .expect(200);
-      expect(seen[0]).toMatchObject({
-        url: "/a1f3",
-        baseUrl: "/active/comments",
-        filePath: "Daily/today.md",
-        segments: ["a1f3"],
-      });
-    });
-
     test("requires the API key", async () => {
       const { seen } = registerComments();
       const res = await request(server).get(`/vault/${NOTE}/comments/a1f3`);
@@ -5273,73 +5239,12 @@ describe("requestHandler", () => {
     });
   });
 
-  describe("activeFile Content-Location header", () => {
-    const activeFilePath = "notes/active.md";
-
-    beforeEach(() => {
-      const activeFile = Object.assign(new TFile(), { path: activeFilePath });
-      jest.spyOn(app.workspace, "getActiveFile").mockReturnValue(activeFile);
-      app.vault.adapter._readBinary = Buffer.from("# Active\n");
-    });
-
-    test("GET returns Content-Location", async () => {
-      const res = await request(server)
-        .get("/active/")
-        .set("Authorization", `Bearer ${API_KEY}`)
-        .expect(200);
-      expect(res.headers["content-location"]).toEqual(activeFilePath);
-    });
-
-    test("PUT (whole-file replace) returns Content-Location", async () => {
-      const res = await request(server)
-        .put("/active/")
-        .set("Authorization", `Bearer ${API_KEY}`)
-        .set("Content-Type", "text/markdown")
-        .send("# Replaced\n")
-        .expect(204);
-      expect(res.headers["content-location"]).toEqual(activeFilePath);
-    });
-
-    test("POST (append) returns Content-Location", async () => {
-      const res = await request(server)
-        .post("/active/")
-        .set("Authorization", `Bearer ${API_KEY}`)
-        .set("Content-Type", "text/markdown")
-        .send("appended\n")
-        .expect(204);
-      expect(res.headers["content-location"]).toEqual(activeFilePath);
-    });
-
-    test("PATCH returns Content-Location", async () => {
-      jest.spyOn(handler.operations, "patchFileSection").mockResolvedValue("# Patched\n");
-      const res = await request(server)
-        .patch("/active/")
-        .set("Authorization", `Bearer ${API_KEY}`)
-        .set("Markdown-Patch-Version", "1")
-        .set("Content-Type", "text/markdown")
-        .set("Operation", "append")
-        .set("Target-Type", "heading")
-        .set("Target", "Active File")
-        .send("appended\n")
-        .expect(200);
-      expect(res.headers["content-location"]).toEqual(activeFilePath);
-    });
-
-    test("DELETE returns Content-Location", async () => {
-      const res = await request(server)
-        .delete("/active/")
-        .set("Authorization", `Bearer ${API_KEY}`)
-        .expect(204);
-      expect(res.headers["content-location"]).toEqual(activeFilePath);
-    });
-  });
-
   describe("vault Content-Location on URL-targeted routes", () => {
     // `/vault/notes/some file.md/heading/Heading2` is ambiguous on its face: it
     // could address a file literally named `notes/some file.md/heading/Heading2`
     // just as well as the `Heading2` section of `notes/some file.md`. Only the
     // server knows which way the walk-backward resolver went, so these routes
-    // answer with Content-Location the same way `/active/` and MOVE/COPY do.
+    // answer with Content-Location the same way MOVE/COPY do.
     const filePath = "notes/some file.md";
     const encodedPath = "notes/some%20file.md";
     const markdown = "# Heading1\nContent\n\n# Heading2\nContent under heading2\n";
@@ -5413,128 +5318,6 @@ describe("requestHandler", () => {
         .set("Authorization", `Bearer ${API_KEY}`);
       expect(res.status).toBe(200);
       expect(res.headers["content-location"]).toBeUndefined();
-    });
-  });
-
-  describe("active-file write handlers surface failures instead of hanging", () => {
-    // Regression coverage for redirectToVaultPath's callers: they used to
-    // fire the underlying _vaultPut/_vaultPost/_vaultPatch/_vaultDelete call
-    // with `void`, discarding its promise. A thrown error then became an
-    // unhandled rejection instead of reaching errorHandler, and since
-    // nothing ever called res.json/res.status, the request just hung
-    // forever instead of failing fast with a 500. Before the fix, these
-    // tests would time out rather than fail cleanly.
-    const activeFilePath = "notes/active.md";
-
-    beforeEach(() => {
-      const activeFile = Object.assign(new TFile(), { path: activeFilePath });
-      jest.spyOn(app.workspace, "getActiveFile").mockReturnValue(activeFile);
-    });
-
-    test("PUT surfaces a write failure as a 500 instead of hanging", async () => {
-      jest
-        .spyOn(handler.operations, "writeFileContent")
-        .mockRejectedValue(new Error("disk full"));
-
-      await request(server)
-        .put("/active/")
-        .set("Authorization", `Bearer ${API_KEY}`)
-        .set("Content-Type", "text/markdown")
-        .send("# Replaced\n")
-        .expect(500);
-    });
-
-    test("POST surfaces an append failure as a 500 instead of hanging", async () => {
-      jest
-        .spyOn(handler.operations, "appendFileContent")
-        .mockRejectedValue(new Error("disk full"));
-
-      await request(server)
-        .post("/active/")
-        .set("Authorization", `Bearer ${API_KEY}`)
-        .set("Content-Type", "text/markdown")
-        .send("appended\n")
-        .expect(500);
-    });
-
-    test("DELETE still surfaces an unexpected deletion failure as a 500", async () => {
-      jest
-        .spyOn(handler.operations, "deleteVaultFile")
-        .mockRejectedValue(new Error("locked"));
-
-      await request(server)
-        .delete("/active/")
-        .set("Authorization", `Bearer ${API_KEY}`)
-        .expect(500);
-    });
-  });
-
-  describe("active PATCH — URL-target raw-content mode", () => {
-    // A URL suffix on an active-file PATCH was previously
-    // ignored (the whole file was patched); it now routes into raw-content
-    // mode against the resolved sub-target, matching PUT/POST.
-    const noteContent = "# Log\nEntry\n\n# Other\nOther content\n";
-
-    function setNote(path: string): void {
-      const noteFile = Object.assign(new TFile(), { path });
-      jest.spyOn(app.workspace, "getActiveFile").mockReturnValue(noteFile);
-      app.vault.adapter._statForPath = path;
-      app.vault._read = noteContent;
-      app.vault.adapter._read = noteContent;
-      app.vault.adapter._readBinary = Buffer.from(noteContent);
-    }
-
-    test("an active-file PATCH suffix targets the section and sets Content-Location", async () => {
-      setNote("notes/active.md");
-      const res = await request(server)
-        .patch("/active/heading/Log")
-        .set("Authorization", `Bearer ${API_KEY}`)
-        .set("Operation", "append")
-        .set("Content-Type", "text/markdown")
-        .send("- appended\n");
-      expect(res.status).toBe(200);
-      expect(res.text).toContain("Entry\n\n- appended");
-      expect(res.headers["content-location"]).toEqual("notes/active.md");
-    });
-
-    test("an active-file PATCH suffix plus Target-Type header returns 422", async () => {
-      setNote("notes/active.md");
-      const res = await request(server)
-        .patch("/active/heading/Log")
-        .set("Authorization", `Bearer ${API_KEY}`)
-        .set("Target-Type", "heading")
-        .set("Operation", "append")
-        .set("Content-Type", "text/markdown")
-        .send("x");
-      expect(res.status).toBe(422);
-    });
-
-    test("an active-file PATCH without a suffix still takes an instruction body", async () => {
-      setNote("notes/active.md");
-      const res = await request(server)
-        .patch("/active/")
-        .set("Authorization", `Bearer ${API_KEY}`)
-        .set("Content-Type", "application/json")
-        .send({ targetType: "heading", target: ["Log"], operation: "append", content: "- appended\n" });
-      expect(res.status).toBe(200);
-      expect(res.text).toContain("Entry\n\n- appended");
-    });
-
-    test("an active-file PATCH suffix targets a heading whose text contains a slash", async () => {
-      // The suffix reaches these handlers through the wildcard capture, which
-      // Express decodes — collapsing %2F to a boundary. The raw suffix must be
-      // recovered from the request path so a slash-bearing heading still targets.
-      setNote("notes/active.md");
-      app.vault._read = "# A/B\nEntry\n\n# Other\nx\n";
-      app.vault.adapter._read = app.vault._read;
-      const res = await request(server)
-        .patch("/active/heading/A%2FB")
-        .set("Authorization", `Bearer ${API_KEY}`)
-        .set("Operation", "append")
-        .set("Content-Type", "text/markdown")
-        .send("- added\n");
-      expect(res.status).toBe(200);
-      expect(res.text).toContain("Entry\n\n- added");
     });
   });
 });

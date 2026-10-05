@@ -271,8 +271,6 @@ curl -k -X PATCH \
 
 Everything downstream is identical to instruction mode: the same validation, the same warnings header, the same error mapping. A raw-mode request may also send `application/vnd.olrapi.patch-instruction+json` — but only as a *whole-instruction body* with no targeting elsewhere; combining it with URL or header targeting is a `422 ConflictingTargetSpecification`.
 
-> **Note:** on `/active/` endpoints, a URL suffix (e.g. `/active/heading/Log`) previously had no effect on PATCH — it was ignored and the whole file was patched. It now targets the addressed section, matching PUT/POST.
-
 # Deprecated: the 1.x header-driven format
 
 The earlier PATCH format spread the instruction across `Operation`, `Target-Type`, `Target`, `Target-Delimiter`, `Target-Scope`, `Create-Target-If-Missing`, `Reject-If-Content-Preexists`, and `Trim-Target-Whitespace` headers, with the payload in a `text/markdown` (or JSON-string) body. **It is deprecated and will be removed in 6.0.** Requests that use it still work, but every response carries a `Deprecation: true; sunset-version="6.0"` header.

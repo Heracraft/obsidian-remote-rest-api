@@ -77,9 +77,6 @@ function makeMockOps() {
         adapter: new DataAdapter(),
         getAbstractFileByPath: jest.fn().mockReturnValue(mockFile),
       },
-      workspace: {
-        getActiveFile: jest.fn().mockReturnValue(mockFile),
-      },
     },
     listVaultDirectory: jest.fn().mockResolvedValue(["file1.md", "folder/"]),
     getFileMetadataObject: jest.fn().mockResolvedValue({
@@ -268,8 +265,8 @@ describe("McpHandler", () => {
 
   // ---- tool registration --------------------------------------------------
 
-  test("registers all 16 tools (the two signed-URL tools are there because that setting is on by default)", () => {
-    expect(registerTool).toHaveBeenCalledTimes(16);
+  test("registers all 15 tools (the two signed-URL tools are there because that setting is on by default)", () => {
+    expect(registerTool).toHaveBeenCalledTimes(15);
     const names = registerTool.mock.calls.map((c: unknown[]) => c[0]);
     expect(names).toEqual(
       expect.arrayContaining([
@@ -285,7 +282,6 @@ describe("McpHandler", () => {
         "vault_move",
         "vault_copy",
         "vault_get_document_map",
-        "active_file_get_path",
         "search_query",
         "search_simple",
         "tag_list",
@@ -302,7 +298,6 @@ describe("McpHandler", () => {
         "vault_read",
         "vault_read_binary",
         "vault_get_document_map",
-        "active_file_get_path",
         "search_query",
         "search_simple",
         "tag_list",
@@ -757,12 +752,12 @@ describe("McpHandler", () => {
       build(UNSIGNED);
       expect(registeredNames()).not.toContain("vault_get_download_url");
       expect(registeredNames()).not.toContain("vault_get_upload_url");
-      expect(registerTool).toHaveBeenCalledTimes(14);
+      expect(registerTool).toHaveBeenCalledTimes(13);
       build();
       expect(registeredNames()).toEqual(
         expect.arrayContaining(["vault_get_download_url", "vault_get_upload_url"]),
       );
-      expect(registerTool).toHaveBeenCalledTimes(16);
+      expect(registerTool).toHaveBeenCalledTimes(15);
     });
 
     test("setSignedUrlsEnabled adds and removes the tools without rebuilding the handler", () => {
@@ -2039,23 +2034,6 @@ describe("McpHandler", () => {
     });
   });
 
-  // ---- active_file_get_path -----------------------------------------------
-
-  describe("active_file_get_path", () => {
-    test("returns path of the active file", async () => {
-      const cb = getToolCallback("active_file_get_path");
-      const result = await cb({});
-      expect(ops.app.workspace.getActiveFile).toHaveBeenCalled();
-      expect(parseText(result).path).toBe("test.md");
-    });
-
-    test("throws when no file is active", async () => {
-      ops.app.workspace.getActiveFile.mockReturnValue(null);
-      const cb = getToolCallback("active_file_get_path");
-      await expect(cb({})).rejects.toThrow("No active file");
-    });
-  });
-
   // ---- search_query -------------------------------------------------------
 
   test("search_query calls searchJsonLogic and returns results", async () => {
@@ -2132,8 +2110,8 @@ describe("McpHandler", () => {
 
       const first = await send(1);
       const second = await send(2);
-      expect(first.body.result.tools).toHaveLength(16);
-      expect(second.body.result.tools).toHaveLength(16);
+      expect(first.body.result.tools).toHaveLength(15);
+      expect(second.body.result.tools).toHaveLength(15);
       expect(first.headers["mcp-session-id"]).toBeUndefined();
       expect(second.headers["mcp-session-id"]).toBeUndefined();
     });
@@ -2273,7 +2251,7 @@ describe("McpHandler", () => {
         .send(sessionlessRequest(1, "tools/list"))
         .expect(200);
 
-      expect(res.body.result.tools).toHaveLength(16);
+      expect(res.body.result.tools).toHaveLength(15);
       expect(res.headers["mcp-session-id"]).toBeUndefined();
     });
 
@@ -2401,7 +2379,7 @@ describe("McpHandler", () => {
         .expect(200);
 
       const message = sseResult(res.text);
-      expect(message.result.tools).toHaveLength(16);
+      expect(message.result.tools).toHaveLength(15);
       const vaultList = (message.result.tools as { name: string; inputSchema: unknown }[]).find(
         (t) => t.name === "vault_list",
       );

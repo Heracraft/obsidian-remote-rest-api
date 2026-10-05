@@ -777,9 +777,8 @@ describe("vault_read_binary tool", () => {
   });
 });
 
-// Signed URLs are on by default, so this suite runs by default and opts *out*, unlike
-// the OBSIDIAN_ACTIVE_FILE suite, which opts in. Gating at
-// registration time is what lets Jest report a skip as a skip.
+// Signed URLs are on by default, so this suite runs by default and opts *out* rather
+// than in. Gating at registration time is what lets Jest report a skip as a skip.
 const signedUrlSuite = process.env.OBSIDIAN_SIGNED_URLS === "0" ? describe.skip : describe;
 
 signedUrlSuite("signed URL tools", () => {
@@ -1309,23 +1308,6 @@ describe("tag_list tool", () => {
       expect(typeof tag.name).toBe("string");
       expect(typeof tag.count).toBe("number");
     }
-  });
-});
-
-// ---------------------------------------------------------------------------
-// active_file_* (conditional on OBSIDIAN_ACTIVE_FILE)
-// ---------------------------------------------------------------------------
-
-const activeRun =
-  typeof process.env.OBSIDIAN_ACTIVE_FILE === "string" &&
-  process.env.OBSIDIAN_ACTIVE_FILE.length > 0;
-const activeTest = activeRun ? test : test.skip;
-
-describe("active_file_get_path tool", () => {
-  activeTest("returns vault-relative path of active file", async () => {
-    const result = await client.callTool({ name: "active_file_get_path", arguments: {} });
-    const body = jsonOf<any>(result);
-    expect(typeof body.path).toBe("string");
   });
 });
 

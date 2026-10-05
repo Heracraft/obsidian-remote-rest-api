@@ -48,18 +48,6 @@ local DownloadParam = {
   schema: { type: 'string', enum: ['1'] },
 };
 
-local ContentLocationHeader = {
-  'Content-Location': {
-    description: 'Vault-relative path of the file that was acted on, e.g. `notes/file.md`. Each path component is percent-encoded on its own -- non-ASCII characters, and reserved characters such as `#`, `?` and `,` that would otherwise be read as a fragment, a query or a header-list separator -- so the value can be pasted straight back into a request URL.',
-    schema: { type: 'string', example: 'notes/file.md' },
-  },
-};
-local WithContentLocation(codes) = {
-  // `headers+:` rather than `headers:`: an operation's own response headers
-  // (`Markdown-Patch-Warnings`, say) must survive this being mixed in.
-  responses+: { [c]+: { headers+: ContentLocationHeader } for c in codes },
-};
-
 // `/vault/{filename}` only reports a Content-Location when the URL had to be
 // resolved -- a path that embeds a `/heading`, `/block` or `/frontmatter`
 // target is ambiguous with a file literally named that, and only the server
@@ -278,7 +266,6 @@ std.manifestYamlDoc(
     ],
     tags: [
       { name: 'Vault Files' },
-      { name: 'Active File' },
       { name: 'Vault Directories' },
       { name: 'Tags' },
       { name: 'Search' },
@@ -287,40 +274,6 @@ std.manifestYamlDoc(
       { name: 'MCP' },
     ],
     paths: {
-      '/active/': {
-        get: Get + WithContentLocation(['200']) {
-          tags: ['Active File'],
-          summary: 'Return the content of the active file open in Obsidian.\n',
-          description: (importstr 'lib/descriptions/active-get.md') + '\n' + GetShared,
-        },
-        put: Put + WithContentLocation(['200', '204']) {
-          tags: [
-            'Active File',
-          ],
-          summary: 'Update the content of the active file open in Obsidian.\n',
-          description: PutShared,
-        },
-        post: Post + WithContentLocation(['200', '204']) {
-          tags: [
-            'Active File',
-          ],
-          summary: 'Append content to the active file open in Obsidian.\n',
-          description: (importstr 'lib/descriptions/active-post.md') + '\n' + PostShared,
-        },
-        patch: Patch + WithContentLocation(['200']) {
-          tags: [
-            'Active File',
-          ],
-          summary: 'Partially update content in the currently open note.\n',
-          description: PatchDescription('the currently-open note'),
-        },
-        delete: Delete + WithContentLocation(['204']) {
-          tags: [
-            'Active File',
-          ],
-          summary: 'Deletes the currently-active file in Obsidian.\n',
-        },
-      },
       '/vault/{filename}': {
         get: Get + WithResolvedContentLocation(['200']) + WithConfigDirForbidden {
           tags: [

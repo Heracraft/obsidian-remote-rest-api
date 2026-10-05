@@ -22,7 +22,6 @@ export interface VaultSubresourceHost {
   ): Promise<{ filePath: string; targetType?: string } | null>;
   /** The indexed vault file at `path`, or null when there is none. */
   getFile(path: string): TFile | null;
-  getActiveFile(): TFile | null;
   /** True when the request was authenticated by a signed URL. */
   isSigned(req: express.Request): boolean;
 }
@@ -61,10 +60,10 @@ function decodeSegments(raw: string): { decoded: string[]; trailingSlash: boolea
  *
  * A sub-resource lives under a note: `/vault/Notes/draft.md/comments/a1f3` is the
  * `comments` sub-resource of `Notes/draft.md`, addressed `/a1f3` within it. The
- * dispatcher runs ahead of the built-in `/vault/*` and `/active/*` handlers, and only
- * claims a request when the path resolves to an existing file followed by a registered
- * name. Anything else falls through untouched, so the built-in handlers keep their
- * current behavior, 404s included.
+ * dispatcher runs ahead of the built-in `/vault/*` handler, and only claims a request
+ * when the path resolves to an existing file followed by a registered name. Anything
+ * else falls through untouched, so the built-in handlers keep their current behavior,
+ * 404s included.
  */
 export class VaultSubresourceRegistry {
   private routers = new Map<string, express.Router>();
@@ -94,7 +93,7 @@ export class VaultSubresourceRegistry {
     }
   }
 
-  /** The middleware to mount ahead of the built-in `/vault/*` and `/active/*` routes. */
+  /** The middleware to mount ahead of the built-in `/vault/*` route. */
   middleware(host: VaultSubresourceHost): express.RequestHandler {
     return (req, res, next) => {
       this.match(req, host)
@@ -121,9 +120,6 @@ export class VaultSubresourceRegistry {
 
     if (req.path.startsWith("/vault/")) {
       return this.matchVault(req.path.slice("/vault/".length), host);
-    }
-    if (req.path.startsWith("/active/")) {
-      return this.matchActive(req.path.slice("/active/".length), host);
     }
     return null;
   }
@@ -155,26 +151,6 @@ export class VaultSubresourceRegistry {
       segments: decoded.slice(nameIndex + 1),
       trailingSlash,
       basePath: "/vault/" + raw.split("/").slice(0, nameIndex + 1).join("/"),
-    };
-  }
-
-  private async matchActive(
-    raw: string,
-    host: VaultSubresourceHost,
-  ): Promise<SubresourceMatch | null> {
-    const split = decodeSegments(raw);
-    if (!split) return null;
-    const { decoded, trailingSlash } = split;
-    const router = this.routers.get(decoded[0]);
-    if (!router) return null;
-    const file = host.getActiveFile();
-    if (!file) return null;
-    return {
-      router,
-      file,
-      segments: decoded.slice(1),
-      trailingSlash,
-      basePath: "/active/" + raw.split("/")[0],
     };
   }
 

@@ -89,7 +89,7 @@ interface ToolSpec {
   callback: (args: unknown) => Promise<CallToolResult>;
 }
 
-// Shared annotation set for tools that only ever read vault/workspace state.
+// Shared annotation set for tools that only ever read vault state.
 const READ_ONLY_ANNOTATIONS: ToolAnnotations = {
   readOnlyHint: true,
   destructiveHint: false,
@@ -1029,12 +1029,6 @@ export class McpHandler {
     };
   }
 
-  private getActiveFile(): TFile {
-    const file = this.ops.app.workspace.getActiveFile();
-    if (!file) throw new Error("No active file");
-    return file;
-  }
-
   // The one read behind every `vault_read`: raw bytes, decoded strictly. See
   // `decodeUtf8Strict` above for why the read is a binary one.
   private async readTextStrict(path: string): Promise<string> {
@@ -1588,17 +1582,6 @@ export class McpHandler {
         if (!(file instanceof TFile)) throw new Error(`File not found: ${path}`);
         const map = await this.ops.getDocumentMapV2Object(file);
         return this.text(map);
-      },
-    );
-
-    this.tool(
-      "active_file_get_path",
-      dedent`Return the vault-relative path of the file currently open in Obsidian. Use this path with vault_read, vault_write, vault_append, vault_patch, vault_get_document_map, or vault_delete to operate on the active file. Throws if no file is active.`,
-      {},
-      READ_ONLY_ANNOTATIONS,
-      async () => {
-        const file = this.getActiveFile();
-        return this.text({ path: file.path });
       },
     );
 
