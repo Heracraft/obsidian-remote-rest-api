@@ -20,6 +20,14 @@ jobs:
       # compares content rather than two implementations' formatting.
       - name: Install go-jsonnet
         run: go install github.com/google/go-jsonnet/cmd/jsonnet@v0.22.0
+      # A lockfile written behind a local npm cache records the cache's URLs,
+      # which nothing else can reach.
+      - name: Check the lockfile resolves from the public registry
+        run: |
+          if grep -n '"resolved": "' package-lock.json | grep -v '"resolved": "https://registry.npmjs.org/'; then
+            echo "package-lock.json resolves packages from somewhere other than registry.npmjs.org" >&2
+            exit 1
+          fi
       - run: npm ci
       - run: npm run lint
       - run: npm run typecheck
