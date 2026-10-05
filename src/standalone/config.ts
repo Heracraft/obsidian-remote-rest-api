@@ -29,9 +29,6 @@ export interface StandaloneConfig {
   tlsKeyFile?: string;
   /** The networks clients may connect from; see ./network. */
   allowedNetworks: Cidr[];
-  /** Whether a request a proxy forwards for a public client is served. Only
-   *  for a proxy that authenticates every request itself first. */
-  allowPublicClientsThroughAuthenticatingProxy: boolean;
   /** Settings for the request handler, without the generated parts. */
   settings: LocalRestApiSettings;
   /** Whether API_KEY came from the environment. */
@@ -96,6 +93,15 @@ export function loadConfig(env: Env = process.env): StandaloneConfig {
     throw new ConfigError("Set TLS_CERT_FILE and TLS_KEY_FILE together, or neither.");
   }
 
+  // Removed: the server no longer serves public clients through any proxy.
+  // A deployment that still turns it on is told so, rather than finding
+  // its proxied requests refused with no reason given.
+  if (boolean(env, "ALLOW_PUBLIC_CLIENTS_THROUGH_AUTHENTICATING_PROXY", false)) {
+    throw new ConfigError(
+      "ALLOW_PUBLIC_CLIENTS_THROUGH_AUTHENTICATING_PROXY is no longer supported: this server answers only clients on private networks (Tailscale, WireGuard, LAN). Remove the variable.",
+    );
+  }
+
   let networks: Cidr[];
   try {
     networks = allowedNetworks(env.ALLOWED_CLIENT_NETWORKS);
@@ -116,11 +122,6 @@ export function loadConfig(env: Env = process.env): StandaloneConfig {
     tlsCertFile,
     tlsKeyFile,
     allowedNetworks: networks,
-    allowPublicClientsThroughAuthenticatingProxy: boolean(
-      env,
-      "ALLOW_PUBLIC_CLIENTS_THROUGH_AUTHENTICATING_PROXY",
-      false,
-    ),
     settings,
     apiKeyFromEnvironment: Boolean(apiKey),
   };

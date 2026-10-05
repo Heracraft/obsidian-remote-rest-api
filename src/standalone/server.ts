@@ -48,15 +48,6 @@ async function main(): Promise<void> {
     }
     throw error;
   }
-  if (config.allowPublicClientsThroughAuthenticatingProxy) {
-    console.warn(
-      "[REST API] WARNING: ALLOW_PUBLIC_CLIENTS_THROUGH_AUTHENTICATING_PROXY is on. Requests a proxy forwards for " +
-        "clients on the public internet will be served. Anyone who gets past that proxy, or reaches this server " +
-        "around it, can read, change and delete every note with one leaked API key. Make sure the proxy " +
-        "authenticates every request on this route (forward auth, mTLS, an SSO gateway) before it is forwarded.",
-    );
-  }
-
   const vaultStat = fs.statSync(config.vaultPath, { throwIfNoEntry: false });
   if (!vaultStat?.isDirectory()) {
     console.error(`[REST API] The vault folder ${config.vaultPath} does not exist. Mount a folder there or set VAULT_PATH.`);
@@ -122,7 +113,7 @@ async function main(): Promise<void> {
   // is a bare 403 that says why, sent before authentication, so a client
   // outside the allowed networks learns nothing about the API behind it.
   const gated: http.RequestListener = (req, res) => {
-    const verdict = checkClient(req, config.allowedNetworks, config.allowPublicClientsThroughAuthenticatingProxy);
+    const verdict = checkClient(req, config.allowedNetworks);
     if (verdict.allowed) {
       handler.api(req, res);
       return;
