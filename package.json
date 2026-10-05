@@ -1,6 +1,6 @@
 {
   "name": "obsidian-remote-rest-api",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "private": true,
   "description": "The Obsidian Local REST API and MCP server, run as a standalone container over a folder of markdown notes.",
   "engines": {
