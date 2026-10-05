@@ -1,26 +1,25 @@
-# The smallest working setup: one folder of notes, served on one address of a
-# private network you control.
+# One folder of notes, served on one address of a private network you control.
+# Settings come from a .env file next to this one (see .env.example):
 #
-#   BIND_IP=100.x.y.z docker compose up -d
+#   API_KEY    the bearer token; generate one with `openssl rand -hex 32`
+#   BIND_IP    this machine's Tailscale (100.64.0.0/10) or WireGuard address
+#   VAULT_DIR  the folder to serve
 #
-# BIND_IP must be this machine's Tailscale (100.64.0.0/10) or WireGuard
-# address. Do NOT set it to a public address, and do not drop the address
-# from "ports": a bare "27124:27124" publishes on every interface of the host,
-# public ones included. The server refuses clients outside private networks
-# on its own, but a port nobody on the internet can reach is the first line.
-# See "Exposure" in README.md before putting this anywhere else.
+# BIND_IP must never be a public address. A bare "27124:27124" publishes on
+# every interface of the host, public ones included. See "Exposure" in
+# README.md before putting this anywhere else.
 
 services:
   notes-api:
     image: ghcr.io/heracraft/obsidian-remote-rest-api:latest
     restart: unless-stopped
-    # Match the owner of the folder below, so files the API writes are yours.
+    # The owner of VAULT_DIR, so files the API writes belong to them.
     user: "${UID:-1000}:${GID:-1000}"
     volumes:
-      - ${VAULT_DIR:-./vault}:/vault
+      - ${VAULT_DIR:?Set VAULT_DIR to the folder to serve}:/vault
     ports:
       - "${BIND_IP:?Set BIND_IP to this machine's Tailscale or WireGuard address}:27124:27124"
-    # environment:
-    #   API_KEY: "..."                 # otherwise one is generated and logged once
-    #   SUBJECT_ALT_NAMES: "notes.tailnet-name.ts.net"   # names on the HTTPS certificate
-    #   ENABLE_INSECURE_SERVER: "true"  # plain HTTP on 27123; only inside a tunnel
+    environment:
+      API_KEY: "${API_KEY:?Set API_KEY, for example to the output of openssl rand -hex 32}"
+      # Names and addresses clients use, for the HTTPS certificate.
+      SUBJECT_ALT_NAMES: "${SUBJECT_ALT_NAMES:-}"

@@ -56,14 +56,39 @@ The API is the plugin's own code, so the [interactive API docs](https://coddingt
 
 You need Docker with Compose, a folder of notes, and this machine's address on your Tailscale or WireGuard network (`tailscale ip -4` prints it).
 
-```sh
-mkdir notes-api && cd notes-api
-curl -fsSLO https://raw.githubusercontent.com/Heracraft/obsidian-remote-rest-api/main/compose.yaml
-VAULT_DIR=~/Notes BIND_IP=100.101.102.103 docker compose up -d
-docker compose logs notes-api | grep "API key"
+`compose.yaml`:
+
+```yaml
+services:
+  notes-api:
+    image: ghcr.io/heracraft/obsidian-remote-rest-api:latest
+    restart: unless-stopped
+    user: "${UID:-1000}:${GID:-1000}"
+    volumes:
+      - ${VAULT_DIR:?Set VAULT_DIR to the folder to serve}:/vault
+    ports:
+      - "${BIND_IP:?Set BIND_IP to this machine's Tailscale or WireGuard address}:27124:27124"
+    environment:
+      API_KEY: "${API_KEY:?Set API_KEY, for example to the output of openssl rand -hex 32}"
+      SUBJECT_ALT_NAMES: "${SUBJECT_ALT_NAMES:-}"
 ```
 
-On first start the server generates an API key and a TLS certificate authority, logs the key once, and keeps both in `.obsidian/plugins/obsidian-remote-rest-api/data.json` inside the folder, where the API itself cannot read them. Set `API_KEY` to choose the key yourself. Run the container as the user who owns the folder (`user:`), so the files it writes belong to you.
+`.env` next to it:
+
+```sh
+API_KEY=<output of: openssl rand -hex 32>
+BIND_IP=100.101.102.103
+VAULT_DIR=/home/you/Notes
+SUBJECT_ALT_NAMES=notes.your-tailnet.ts.net,100.101.102.103
+```
+
+```sh
+docker compose up -d
+```
+
+Compose refuses to start until `API_KEY`, `BIND_IP` and `VAULT_DIR` are set. Keep `.env` out of version control and readable only by you (`chmod 600 .env`); rotating the key means changing it there and running `docker compose up -d` again.
+
+`user:` should be the owner of the folder, so the files the API writes belong to them. On first start the server generates a TLS certificate authority and keeps it in `.obsidian/plugins/obsidian-remote-rest-api/data.json` inside the folder, where the API itself cannot read it.
 
 If the folder is also an Obsidian vault, Obsidian can keep using it at the same time on any machine: changes made in Obsidian, by a sync client, or by `git pull` show up in the API within a second, and changes made through the API show up in Obsidian.
 
@@ -220,12 +245,12 @@ services:
 
 ## Configuration
 
-Every setting is an environment variable. All are optional.
+Every setting is an environment variable. Set `API_KEY`; the rest have defaults. `compose.yaml` also requires `BIND_IP` and `VAULT_DIR`.
 
 | Variable | Default | Meaning |
 |---|---|---|
 | `VAULT_PATH` | `/vault` | The folder to serve. |
-| `API_KEY` | generated | The bearer token. When unset, one is generated on first start, logged once, and kept in the data directory. |
+| `API_KEY` | none | The bearer token. Set it. Without it the server generates one on first start, logs it once and keeps it in the data directory, which suits a quick test and nothing else. |
 | `DATA_DIR` | `<vault>/.obsidian/plugins/obsidian-remote-rest-api` | Where the generated API key and TLS material are kept. The default sits in the configuration directory, which the API refuses to serve. |
 | `CONFIG_DIR` | `.obsidian` | The Obsidian configuration directory's name, which the API refuses to read or write. |
 | `PORT` | `27124` | HTTPS port. |
@@ -275,7 +300,7 @@ Node 22 or later:
 
 ```sh
 npm ci && npm run build
-VAULT_PATH=~/Notes BINDING_HOST=100.101.102.103 node dist/server.js
+API_KEY=<your key> VAULT_PATH=~/Notes BINDING_HOST=100.101.102.103 node dist/server.js
 ```
 
 ## API overview

@@ -2,7 +2,9 @@
 # sidecar, and publishes no port on the host at all. Nothing outside the
 # tailnet can reach it, whatever the host's firewall says.
 #
-#   TS_AUTHKEY=tskey-auth-... docker compose -f compose.tailscale.yaml up -d
+#   docker compose -f compose.tailscale.yaml up -d
+#
+# with TS_AUTHKEY, API_KEY (`openssl rand -hex 32`) and VAULT_DIR in .env.
 #
 # Then open https://notes.<your-tailnet>.ts.net:27124/ from any device on
 # the tailnet. With ENABLE_INSECURE_SERVER the WireGuard tunnel Tailscale
@@ -33,8 +35,9 @@ services:
     depends_on:
       - tailscale
     volumes:
-      - ${VAULT_DIR:-./vault}:/vault
+      - ${VAULT_DIR:?Set VAULT_DIR to the folder to serve}:/vault
     environment:
+      API_KEY: "${API_KEY:?Set API_KEY, for example to the output of openssl rand -hex 32}"
       # Only the tailnet, not the rest of the private ranges.
       ALLOWED_CLIENT_NETWORKS: "100.64.0.0/10, fd7a:115c:a1e0::/48, 127.0.0.0/8"
       SUBJECT_ALT_NAMES: "notes"
