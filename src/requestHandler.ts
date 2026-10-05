@@ -105,6 +105,7 @@ import {
 
 // Import openapi.yaml as a string
 import openapiYaml from "../docs/openapi.yaml";
+import type { ImageScaler } from "./imageScaling";
 
 /** The header that selects which markdown-patch format a request speaks. */
 export const MARKDOWN_PATCH_VERSION_HEADER = "Markdown-Patch-Version";
@@ -233,6 +234,11 @@ export default class RequestHandler {
     manifest: PluginManifest,
     settings: LocalRestApiSettings,
     urlSigner: UrlSigner = new UrlSigner(),
+    options: {
+      /** Scales images for MCP `image` blocks. Defaults to the renderer's canvas
+       *  when there is one; a host without a canvas supplies its own. */
+      imageScaler?: ImageScaler | null;
+    } = {},
   ) {
     this.app = app;
     this.manifest = manifest;
@@ -249,6 +255,7 @@ export default class RequestHandler {
       signer: this.urlSigner,
       events: this.events,
       openApiSpec: this.openApiSpec,
+      ...(options.imageScaler !== undefined ? { imageScaler: options.imageScaler } : {}),
     });
 
     this.api.set("json spaces", 2);
