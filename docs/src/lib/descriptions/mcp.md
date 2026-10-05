@@ -44,7 +44,7 @@ Requests with an unrecognized `MCP-Protocol-Version` value are rejected with `40
 | `vault_copy` | Copy a vault file to a new path |
 | `vault_get_document_map` | List the headings, block references, and frontmatter fields in a file |
 | `search_query` | Search using a JsonLogic query evaluated against each note's metadata |
-| `search_simple` | Full-text search using Obsidian's built-in search |
+| `search_simple` | Full-text search for notes containing every word of the query |
 | `tag_list` | List all tags across the vault with usage counts |
 
 ### Binary files
