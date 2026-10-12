@@ -109,19 +109,17 @@ describe("loadConfig", () => {
     [{ ENABLE_SECURE_SERVER: "false" }, "Both servers are turned off"],
     [{ ENABLE_INSECURE_SERVER: "true", INSECURE_PORT: "27124" }, "must differ"],
     [{ TLS_CERT_FILE: "/cert.pem" }, "TLS_CERT_FILE and TLS_KEY_FILE together"],
-    [{ ALLOWED_CLIENT_NETWORKS: "0.0.0.0/0" }, "may only name private networks"],
-    [{ ALLOW_PUBLIC_CLIENTS_THROUGH_AUTHENTICATING_PROXY: "true" }, "no longer supported"],
+    [{ ALLOWED_CLIENT_NETWORKS: "nonsense" }, "is not an IP address or network"],
   ])("refuses %j", (env, message) => {
     expect(() => loadConfig({ VAULT_PATH: vault, ...env })).toThrow(ConfigError);
     expect(() => loadConfig({ VAULT_PATH: vault, ...env })).toThrow(message);
   });
 });
 
-test("network policy defaults to the private networks and can be narrowed", () => {
-  const config = loadConfig({ VAULT_PATH: vault });
-  expect(config.allowedNetworks.map((network) => network.text)).toContain("100.64.0.0/10");
+test("every client may connect unless ALLOWED_CLIENT_NETWORKS is set", () => {
+  expect(loadConfig({ VAULT_PATH: vault }).allowedNetworks).toBeNull();
   const narrowed = loadConfig({ VAULT_PATH: vault, ALLOWED_CLIENT_NETWORKS: "100.64.0.0/10" });
-  expect(narrowed.allowedNetworks.map((network) => network.text)).toEqual(["100.64.0.0/10"]);
+  expect(narrowed.allowedNetworks?.map((network) => network.text)).toEqual(["100.64.0.0/10"]);
 });
 
 describe("state file", () => {

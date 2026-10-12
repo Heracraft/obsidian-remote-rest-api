@@ -19,7 +19,7 @@ import { configureHttpServerTimeouts } from "../serverTimeouts";
 import type { CryptoSettings } from "../types";
 import { ConfigError, loadConfig, readState, writeState, type StandaloneConfig } from "./config";
 import { SharpImageScaler } from "./imageScaler";
-import { assertBindingIsPrivate, checkClient, NetworkPolicyError } from "./network";
+import { checkClient } from "./network";
 import { App } from "./obsidian";
 import { watchVault } from "./watch";
 
@@ -39,15 +39,6 @@ async function main(): Promise<void> {
     throw error;
   }
 
-  try {
-    assertBindingIsPrivate(config.settings.bindingHost ?? "0.0.0.0", config.allowedNetworks);
-  } catch (error) {
-    if (error instanceof NetworkPolicyError) {
-      console.error(`[REST API] Refusing to start. ${error.message}`);
-      process.exit(2);
-    }
-    throw error;
-  }
   const vaultStat = fs.statSync(config.vaultPath, { throwIfNoEntry: false });
   if (!vaultStat?.isDirectory()) {
     console.error(`[REST API] The vault folder ${config.vaultPath} does not exist. Mount a folder there or set VAULT_PATH.`);
@@ -109,25 +100,21 @@ async function main(): Promise<void> {
   });
   handler.setupRouter();
 
-  // Every request passes the network gate before the API sees it. A refusal
-  // is a bare 403 that says why, sent before authentication, so a client
-  // outside the allowed networks learns nothing about the API behind it.
+  // With ALLOWED_CLIENT_NETWORKS set, a client outside those networks gets
+  // a bare 403 before authentication.
   const gated: http.RequestListener = (req, res) => {
     const verdict = checkClient(req, config.allowedNetworks);
     if (verdict.allowed) {
       handler.api(req, res);
       return;
     }
-    if (settings.enableVerboseLogging || verdict.reason === "source") {
-      log(`Refused a request from ${verdict.refused ?? "unknown"} (${verdict.reason === "source" ? "source address" : "forwarded client"} outside the allowed networks)`);
+    if (settings.enableVerboseLogging) {
+      log(`Refused a request from ${verdict.refused ?? "unknown"}, outside ALLOWED_CLIENT_NETWORKS`);
     }
     res.writeHead(403, { "Content-Type": "application/json", Connection: "close" });
     res.end(
       JSON.stringify({
-        message:
-          verdict.reason === "source"
-            ? "This server only answers clients on private networks (Tailscale, WireGuard, LAN)."
-            : "This server does not answer requests forwarded for clients on the public internet.",
+        message: "This server does not answer clients from this address.",
         errorCode: 40322,
       }),
     );

@@ -6,7 +6,7 @@ This repository is a fork of [obsidian-local-rest-api](https://github.com/coddin
 |---|---|
 | Stand-in for the `obsidian` module (vault index, metadata cache, link graph, file manager, search, renderer) | `src/standalone/obsidian/` |
 | Server entry point, configuration, watcher, health check, image scaler | `src/standalone/*.ts` |
-| Network restrictions (private networks only) | `src/standalone/network.ts` |
+| Optional client allowlist (`ALLOWED_CLIENT_NETWORKS`) | `src/standalone/network.ts` |
 | Build (aliases `obsidian` to the stand-in) | `esbuild.config.mjs` |
 | Container | `Dockerfile`, `.dockerignore`, `compose.yaml`, `examples/` |
 | CI and image releases | `.github/workflows/` |
@@ -102,9 +102,9 @@ After making any changes to REST API endpoints or MCP tools, update the matching
 - **Changed behavior or response format**: update the OpenAPI description in `docs/src/lib/descriptions/` and the MCP tool description string in `src/mcpHandler.ts`.
 - **New endpoint entirely**: all layers need additions: route handler, MCP tool, Jsonnet operation block, regenerated `docs/openapi.yaml`, and test coverage in both the unit and integration test files.
 
-### The network restrictions
+### Network access
 
-`src/standalone/network.ts` keeps the server off the public internet: it refuses public binding addresses, public source addresses, and proxied public clients, and has no setting that turns any of that off. Do not add one, and do not widen the default networks. A change here needs tests in `src/standalone/network.test.ts`, and the Exposure section of the Readme must still describe exactly what the server enforces.
+The server answers every client by default, like any HTTP API; the API key is the access control, and a firewall, proxy or VPN in front decides who can reach it. `src/standalone/network.ts` implements the one optional restriction, `ALLOWED_CLIENT_NETWORKS`, which checks the connecting address. Changes there need tests in `src/standalone/network.test.ts`.
 
 ### Regenerating the compiled OpenAPI spec
 
