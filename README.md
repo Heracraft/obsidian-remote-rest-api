@@ -2,9 +2,6 @@
 
 The [Local REST API with MCP](https://github.com/coddingtonbear/obsidian-local-rest-api) plugin for Obsidian, as a standalone server in a container. Mount a folder of markdown notes, an Obsidian vault or any other, and your scripts and AI agents get the plugin's REST API and MCP server for it. Obsidian does not need to be installed.
 
-> [!CAUTION]
-> **Do not put this server on the public internet.** One API key gives full read, write and delete access to every note in the folder. Run it on a private network you control: a [Tailscale](https://tailscale.com/) tailnet or a WireGuard tunnel. The server refuses to bind to a public address and refuses clients from public addresses (see [Exposure](#exposure)).
-
 <!-- toc -->
 
 - [What you can do](#what-you-can-do)
@@ -14,7 +11,7 @@ The [Local REST API with MCP](https://github.com/coddingtonbear/obsidian-local-r
     + [Claude Code](#claude-code)
     + [Claude Desktop](#claude-desktop)
     + [Cursor](#cursor)
-- [Exposure](#exposure)
+- [Behind a reverse proxy](#behind-a-reverse-proxy)
 - [Configuration](#configuration)
 - [How it differs from the plugin](#how-it-differs-from-the-plugin)
 - [Running it without Docker](#running-it-without-docker)
@@ -53,7 +50,7 @@ The API is the plugin's own code, so the [interactive API docs](https://coddingt
 
 ## Quick start
 
-You need Docker with Compose, a folder of notes, and this machine's address on your Tailscale or WireGuard network.
+You need Docker with Compose and a folder of notes.
 
 `compose.yaml`:
 
@@ -66,17 +63,16 @@ services:
     volumes:
       - ${VAULT_DIR}:/vault
     ports:
-      - "${BIND_IP}:27124:27124"
+      - "${BIND_IP:-0.0.0.0}:27124:27124"
     environment:
       API_KEY: ${API_KEY}
-      SUBJECT_ALT_NAMES: ${BIND_IP},${SUBJECT_ALT_NAMES:-}
+      SUBJECT_ALT_NAMES: ${BIND_IP:-},${SUBJECT_ALT_NAMES:-}
 ```
 
 `.env`:
 
 ```sh
 API_KEY=<output of: openssl rand -hex 32>
-BIND_IP=100.101.102.103
 VAULT_DIR=/home/you/Notes
 ```
 
@@ -92,31 +88,31 @@ Keep `.env` out of version control and readable only by you (`chmod 600 .env`).
 
 ```sh
 # Check the server is running (no auth required)
-curl -k https://100.101.102.103:27124/
+curl -k https://<host>:27124/
 
 # List files at the root of the folder
 curl -k -H "Authorization: Bearer <your-api-key>" \
-  https://100.101.102.103:27124/vault/
+  https://<host>:27124/vault/
 
 # Read a note
 curl -k -H "Authorization: Bearer <your-api-key>" \
-  https://100.101.102.103:27124/vault/path/to/note.md
+  https://<host>:27124/vault/path/to/note.md
 
 # Read a specific heading (URL-embedded target)
 curl -k -H "Authorization: Bearer <your-api-key>" \
-  https://100.101.102.103:27124/vault/path/to/note.md/heading/My%20Section
+  https://<host>:27124/vault/path/to/note.md/heading/My%20Section
 
 # Append a line to a specific heading (PATCH with a JSON instruction)
 curl -k -X PATCH \
   -H "Authorization: Bearer <your-api-key>" \
   -H "Content-Type: application/json" \
   --data '{"targetType":"heading","target":["My Section"],"operation":"append","content":"New line of content"}' \
-  https://100.101.102.103:27124/vault/path/to/note.md
+  https://<host>:27124/vault/path/to/note.md
 ```
 
-To drop `-k`, download the server's certificate authority from `https://<host>:27124/obsidian-local-rest-api.crt` and trust it in your OS or browser, or pass it to your client (`curl --cacert obsidian-local-rest-api.crt ...`). The authority is name-constrained: it can only vouch for `127.0.0.1`, `localhost`, the binding host, and the names in `SUBJECT_ALT_NAMES`, so trusting it does not let it (or anyone who obtains its key) impersonate other sites. The certificate covers `BIND_IP`; add host names with `SUBJECT_ALT_NAMES`, which makes a new authority to trust.
+To drop `-k`, download the server's certificate authority from `https://<host>:27124/obsidian-local-rest-api.crt` and trust it in your OS or browser, or pass it to your client (`curl --cacert obsidian-local-rest-api.crt ...`). The authority is name-constrained: it can only vouch for `127.0.0.1`, `localhost`, the binding host, and the names in `SUBJECT_ALT_NAMES`, so trusting it does not let it (or anyone who obtains its key) impersonate other sites. `compose.yaml` puts `BIND_IP` on the certificate when it is set; add host names with `SUBJECT_ALT_NAMES`, which makes a new authority to trust.
 
-Inside a Tailscale or WireGuard tunnel the traffic is already encrypted, so plain HTTP on port 27123 (`ENABLE_INSECURE_SERVER=true`, and publish 27123) is a reasonable way to avoid certificates.
+Plain HTTP is on port 27123 with `ENABLE_INSECURE_SERVER=true`. Use it behind a reverse proxy that handles TLS, or inside a VPN.
 
 ### MCP clients
 
@@ -187,21 +183,18 @@ Add the following to `~/.cursor/mcp.json` (global) or `.cursor/mcp.json` (projec
 }
 ```
 
-## Exposure
+## Behind a reverse proxy
 
-The server refuses:
+Let the proxy handle TLS and send traffic to the plain-HTTP port:
 
-- a public binding address. `BINDING_HOST` must be a private address: loopback, RFC 1918 (`10/8`, `172.16/12`, `192.168/16`), Tailscale's `100.64.0.0/10`, IPv6 unique-local (`fc00::/7`, which holds Tailscale's `fd7a:115c:a1e0::/48`) or link-local. The default `0.0.0.0` is refused when the machine has any public address, as a VPS or a container with `network_mode: host` would. On Docker's default bridge network the container only sees its private bridge address, so the default is fine there.
-- public clients. A request whose source address is outside those networks gets a `403` (error code `40322`) before authentication.
-- public clients behind a proxy. A request a proxy forwards on behalf of a public client (`X-Forwarded-For`, `X-Real-IP` or `Forwarded` naming a public address, or something that is not an address) gets the same `403`.
-- allow lists wider than the private ranges. `ALLOWED_CLIENT_NETWORKS` narrows the allowed networks, for example to the tailnet alone (`100.64.0.0/10,fd7a:115c:a1e0::/48`). It refuses to start if you list anything outside the private ranges.
+- set `ENABLE_INSECURE_SERVER=true`;
+- route to port 27123. In Coolify, put the port in the domain: `https://notes.example.com:27123`.
 
-The server cannot see where Docker publishes its port. `ports: ["27124:27124"]` publishes on every interface of the host, public ones included. Docker usually preserves the client's address, so the server still refuses the request, but in some setups (IPv6 to an IPv4 container, Docker's userland proxy) the client arrives as the Docker gateway, a private address, and the refusal no longer works. Use one of these, the first if you can:
+The signed URLs the server hands out use the scheme in `X-Forwarded-Proto`, so links come back as `https://` behind the proxy.
 
-1. No published port at all. Use the [Tailscale sidecar](examples/compose.tailscale.yaml), and the server is reachable from your tailnet and nowhere else.
-2. A port published only on the host's Tailscale or WireGuard address (`BIND_IP` in [`compose.yaml`](compose.yaml)).
+`ALLOWED_CLIENT_NETWORKS` checks the address that connects. Behind a proxy, that is the proxy's address.
 
-Never publish a bare `"27124:27124"`, or on `0.0.0.0` or the host's public IP.
+[`examples/compose.tailscale.yaml`](examples/compose.tailscale.yaml) puts the server on a Tailscale tailnet instead, through a sidecar, with no published port.
 
 ## Configuration
 
@@ -216,9 +209,9 @@ Every setting is an environment variable. Set `API_KEY`; the rest have defaults.
 | `PORT` | `27124` | HTTPS port. |
 | `INSECURE_PORT` | `27123` | HTTP port. |
 | `ENABLE_SECURE_SERVER` | `true` | Serve HTTPS. |
-| `ENABLE_INSECURE_SERVER` | `false` | Serve plain HTTP. Only inside a Tailscale or WireGuard tunnel. |
-| `BINDING_HOST` | `0.0.0.0` | The address to listen on. Must be private; see [Exposure](#exposure). |
-| `ALLOWED_CLIENT_NETWORKS` | the private ranges | Comma-separated CIDRs clients may connect from. Can only narrow the private ranges. |
+| `ENABLE_INSECURE_SERVER` | `false` | Serve plain HTTP. |
+| `BINDING_HOST` | `0.0.0.0` | The address to listen on. |
+| `ALLOWED_CLIENT_NETWORKS` | none | Comma-separated networks (CIDR) clients may connect from. A client from another address gets `403` (error code `40322`). Unset, every client may connect. |
 | `SUBJECT_ALT_NAMES` | none | Comma-separated host names and addresses for the HTTPS certificate. `compose.yaml` adds `BIND_IP`. Changing it generates a new certificate authority. |
 | `TLS_CERT_FILE`, `TLS_KEY_FILE` | none | Use your own certificate (PEM, chain included) and key instead of the generated ones. |
 | `AUTHORIZATION_HEADER_NAME` | `Authorization` | The header that carries the bearer token. |
@@ -259,7 +252,7 @@ Node 22 or later:
 
 ```sh
 npm ci && npm run build
-API_KEY=<your key> VAULT_PATH=~/Notes BINDING_HOST=100.101.102.103 node dist/server.js
+API_KEY=<your key> VAULT_PATH=~/Notes node dist/server.js
 ```
 
 ## API overview
